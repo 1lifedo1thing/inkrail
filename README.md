@@ -3,10 +3,26 @@
   <h1>Inkrail</h1>
   <p><em>Paper, ink, and a little room to write.</em></p>
   <p>A quiet, native writing desk for Mac. No accounts or subscriptions.</p>
-  <p><strong>macOS 13+ · Offline · Open source</strong><br /><sub>v0.1.0 · Unreleased</sub></p>
+  <p><strong>macOS 13+ · Offline · Open source</strong><br /></p>
 </div>
 
-![Inkrail's writing desk](docs/screenshots/inkrail-light.png)
+![Inkrail's writing desk](docs/screenshots/inkrail-light-mode.png)
+
+<details>
+  <summary>📸 View Screenshots / Gallery</summary>
+  
+  ##### Light Mode
+  ![Inkrail's writing desk](docs/screenshots/inkrail-light-mode.png)
+
+  ##### Night View
+  ![Inkrail's writing desk](docs/screenshots/inkrail-night-mode.png)
+
+  ##### Night View with Lamp
+  ![Inkrail's writing desk](docs/screenshots/inkrail-night-mode-with-lamp.png)
+
+  ##### Customization
+  ![Inkrail's writing desk](docs/screenshots/inkrail-machine-customization.png)  
+</details>
 
 ## Make yourself at home
 
@@ -16,7 +32,7 @@ Switch to **Focus Mode** for a wider page and quieter surroundings.
 
 ## Start writing
 
-Have **Inkrail.app**? Drag it into **Applications** and open it.
+Have **Inkrail.app**? (Download from Releases) Drag it into **Applications** and open it.
 
 Building from source requires Apple's Swift 5.9+ developer tools. Double-click
 **Launch.command**, or run:
@@ -80,5 +96,5 @@ paragraph. Scroll to reveal it, or use **Bottom** mode.
 <div align="center">
   <p>Made with ❤︎ by <strong><a href='https://linkedin.com/in/aaryanverma' target='_blank'>Aaryan Verma</a></strong></p>
   An independent project.</p>
-  <p><a href="LICENSE">MIT License</a> · <a href="docs/DEVELOPMENT.md">Development</a> · <a href="docs/DESIGN.md">Design</a> · <a href="docs/GITHUB_RELEASE.md">Release guide</a></p>
+  <p><a href="LICENSE">MIT License</a> · <a href="docs/DEVELOPMENT.md">Development</a></p>
 </div>
