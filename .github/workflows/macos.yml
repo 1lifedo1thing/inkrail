@@ -1,0 +1,20 @@
+name: Native macOS build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test storage and models
+        run: swift test
+      - name: Build native app
+        run: bash scripts/build-app.sh
+      - name: Archive app, preserving bundle metadata
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Inkrail.app dist/Inkrail-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Inkrail-macOS
+          path: dist/Inkrail-macOS.zip
