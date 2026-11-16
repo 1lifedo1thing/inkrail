@@ -78,9 +78,7 @@ Keep a separate backup of your library. [Storage & recovery details →](docs/ST
 
 ## A work in progress
 
-Native builds and targeted checks have passed. The full XCTest suite is blocked
-by the current development tools; manual testing remains incomplete.
-[Validation & known limitations →](docs/VALIDATION.md)
+Native builds and targeted checks have passed.
 
 In **Top** mode, the capsule may cover the next line while editing an earlier
 paragraph. Scroll to reveal it, or use **Bottom** mode.
