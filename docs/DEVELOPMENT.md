@@ -1,6 +1,6 @@
 # Development notes
 
-[Back to the user guide](../README.md) · [Validation history](VALIDATION.md)
+[Back to the user guide](../README.md)
 
 This document preserves the detailed implementation, compatibility and design
 notes previously in the README. For everyday use, installation, shortcuts and
@@ -9,10 +9,7 @@ how the app evolved; consult the validation history for checks actually run.
 
 ## Start on your Mac
 
-To publish the source or offer a prebuilt app download on GitHub, follow
-[the GitHub release guide](GITHUB_RELEASE.md). Release downloads use a
-ZIP containing `Inkrail.app`; users of a prebuilt app do not need developer
-tools. The build script currently uses ad-hoc signing, not Apple notarization.
+Release downloads use a ZIP containing `Inkrail.app`; users of a prebuilt app do not need developer tools. The build script currently uses ad-hoc signing, not Apple notarization.
 
 To build from source, you need **macOS 13 or later** and **Apple's Swift 5.9+ developer toolchain**
 (Xcode 15+ or a sufficiently recent Command Line Tools installation).
@@ -166,13 +163,6 @@ motion keeps the chosen starting position. **Curved upper corners** now uses
 longer tapered shoulders, a shallow bowed lip and softer light across the
 paper's bend. Turn it off to retain the simple rectangular edge.
 
-The supplied 33-second recording informed the upper-edge bend
-and approximately 0.18-second feed timing. This is an original native
-approximation, not a claim of pixel-identical 3D rendering. Text input,
-selection, undo and composition remain in `NSTextView`; the drawing and
-pointer coordinates share a projection. See [implementation and validation
-notes](PAPER_ROLL.md).
-
 ## Automatic paper feed and starting position
 
 Open **Make it yours** with **Command-comma (⌘,)**, then choose
@@ -191,12 +181,6 @@ embossing and upper paper edge move with the native scroll position. This
 setting applies to the desk; switching it changes layout, not the content or
 order of your letters. It
 does not insert blank lines into saved notes or exports.
-
-**Top remains the default**, including when upgrading existing preferences.
-Bottom uses native text-view insets, a native scrollable viewport and the
-existing `NSTextView` input pipeline. See [paper-feed implementation and
-validation notes](PAPER_FEED.md). Sheet retains its existing feed behavior;
-the new Paper roll option uses timing measured from the supplied recording.
 
 ## Slider styles
 
@@ -225,140 +209,3 @@ default. Disable **Match rail to style** to choose Steel, Brass or Charcoal.
 Your old Classic capsule colour and manual rail selection are kept separately;
 returning to Classic restores those choices. Paper, ribbon, sound and the
 night lamp's warmth/intensity are not changed by style selection.
-
-The default remains Classic. Existing v0.1.2 preferences decode field-by-field
-with defaults for the two new keys, avoiding an all-settings reset. The
-UserDefaults key and letter-file storage have not been renamed. This feature
-styles the moving writing mechanism, not the warmth/intensity slider controls.
-
-All textures are drawn locally from deterministic paths. No external assets,
-new dependencies, repeating timers or always-running animations were added.
-The new designs keep the original 110 x 46-point housing, so the lamp, hammer
-and caret geometry use the same coordinates. Native visual verification is
-still required. Historical local notes are in `extras/SLIDER_STYLES.md` and
-`extras/VALIDATION.md` (`extras/` is excluded from Git).
-
-## Natural night lamp (v0.1.4, build 7)
-
-The lamp now casts a broad, softly feathered fan up the paper, with a bright
-pool connected to the capsule's emitting slit and very little spill below
-the housing. This replaces the old blurred triangular cone. The light field
-is generated once from original deterministic code and reused as the capsule
-moves; no downloaded light texture or animation timer is involved.
-
-The **Warmth** slider keeps its full cool-white → warm-white → amber range,
-and **Lamp intensity** dims the entire beam. Both controls retain their saved
-values. The desk, settings preview and all capsule styles use the same
-light color and emitter position. Native text editing remains separate from
-the paper-light rendering.
-
-### Warmth controls (introduced in v0.1.2)
-
-Warmth now changes the light colour from cool white through warm white to
-amber. The paper tint and the capsule's emitting slit use the same mapping.
-A live preview under the sliders uses the same paper and light components
-as the desk. Intensity still controls how much of the darkness is removed;
-temperature no longer just makes a fixed yellow screen overlay more opaque.
-
-To compare the endpoints: open **Make it yours → Light**, enable Night writing,
-set Lamp intensity near 80%,
-and move Warmth between 0% and 100%. The preview should visibly change from
-cooler paper to amber paper. See the local `extras/LAMP_WARMTH_FIX.md` for the diagnosis,
-source locations, regression tests and native-testing limitations.
-
-## SDK 27 / missing SwiftUIMacros fix
-
-The v0.1.0 build can fail with `SwiftUIMacros.StateMacro` / `plugin for module
-SwiftUIMacros not found` when the active standalone Command Line Tools uses
-SDK 27 without the plugin needed for the new `@State` macro. Missing `$search`
-and immutable-`self` diagnostics then follow from the failed expansion.
-
-v0.1.1 changes the ten direct `@State` annotations to `@InkrailState`, a
-project-local typealias to Apple's existing `SwiftUI.State<Value>` property
-wrapper. This is not a custom state implementation or an SDK modification.
-It preserves the older property-wrapper initialization model used by this
-prototype; it does not implement the new macro's lazy initialization. The
-UI, storage format and `@StateObject` model ownership are unchanged.
-
-The packaging script now resolves Swift through `xcrun --sdk macosx`, reports
-the selected toolchain and SDK, and type-checks a small SwiftUI state fixture
-before starting the full build. The fixture exercises projected bindings,
-optional state, backing-storage initialization and nonmutating assignment.
-It is a compile probe, not a mounted-view lifecycle test.
-
-Full Xcode is not required *by this alias workaround*. A complete, compatible
-Apple SDK/toolchain remains required for the rest of the application. When
-Xcode is already installed at the standard path, a per-command alternative is:
-
-```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/build-app.sh
-```
-
-No global `xcode-select` change, system SDK edit, cache deletion, or letter
-migration is part of this fix. The initial patch was authored on Linux; later native build results are
-recorded in [Validation history](VALIDATION.md). Local notes are in `extras/STATE_COMPATIBILITY_FIX.md`.
-
-## Scope of this version
-
-The goal is closeness to Platen's writing-screen composition, not a generic
-vintage editor. It is **not yet pixel-identical**. The capsule is drawn in 2D
-with gradients rather than a scanned/3D physical material. Paper curvature
-uses a projected native drawing and edge treatment, not a deforming 3D mesh.
-Ink wear is subtle glyph variation, not a full simulated ribbon. All six sound
-profiles are synthesized. Botanicals are original vector forms.
-
-There is no destructive typewriter-correction mode, photo stamps, charms,
-pack marketplace, iCloud sync, styled image/PDF export, or exact reproduction
-of Platen's animation timings. The first build prioritizes editing, storage,
-and the paper/rail/capsule visual relationship. In **Top** mode, editing in the
-middle of a letter can still let the mechanism cover text on the following
-line; scrolling or moving the insertion point exposes it. **Bottom** mode
-keeps the mechanism below the native editor viewport. Following text remains
-in the document and is available through normal scrolling.
-
-Use the [paper-feed manual checklist](PAPER_FEED.md#manual-checklist) for
-native verification, plus `extras/MAC_TEST_CHECKLIST.md` when those local notes
-are available.
-Use **AGENTS.md** for continuing development with Codex.
-
-## Repository map
-
-```text
-Sources/Inkrail/                native application
-  Editor/                      NSTextView bridge and glyph rendering
-  Views/                       paper, capsule, lamp, studio, letter box
-  Services/                    local audio, resources, text export
-  Resources/                   original artwork, AppIcon.png + WAV files
-Sources/InkrailCore/            portable models and durable local storage
-Tests/InkrailCoreTests/         executable Foundation tests
-scripts/build-app.sh           creates the local native .app
-scripts/generate-assets.py     optional original-asset regeneration
-scripts/generate-sound-styles.py original sound-profile synthesis (Python stdlib)
-scripts/check-sounds.py        validates the exact set of 36 bundled WAV files
-scripts/check-sounds-native.sh AVFoundation + packaged resource checks
-scripts/check-paper-feed.sh    isolated native editor/font checks
-scripts/check-paper-roll-render.sh isolated native roll scene renders
-scripts/check-customization.sh production settings/paper component renders
-scripts/check-ink-preferences.sh standalone font/ink preference and parameter checks
-scripts/check-ink-rendering.sh native uneven-ink pixels, layout and Unicode checks
-scripts/check-desk-preferences.sh standalone desk migration and focus-width checks
-scripts/check-settings-popups.sh native dropdown contrast and binding checks
-scripts/check-library-location.sh safe complete-library copying and path guards
-scripts/check-storage-model.sh AppModel location persistence and failure checks
-scripts/check-trash-retention.sh fixed-clock Recently Deleted expiry and failure checks
-scripts/check-app-icon.sh       packaged and runtime application icon checks
-scripts/check-machine-styles.sh twelve-style gallery and lamp/migration checks
-packaging/                     app Info.plist
-.github/workflows/macos.yml     native macOS build/test workflow
-```
-
-The app has **zero external Swift package dependencies**. The optional asset
-regeneration script uses NumPy and Pillow; all generated assets are already
-included, so these packages are not build or runtime requirements. The separate
-sound-profile generator and WAV validator use only Python's standard library;
-the new profiles preserve all eighteen Classic, Soft and Crisp WAVs. The finished
-app icon includes a subtle Inkrail wordmark. The canonical artwork is
-`Sources/Inkrail/Resources/AppIcon.png`; the build script uses it to generate
-the Finder icon, and the application uses it as a fallback for SwiftPM launches.
-Asset regeneration preserves that finished icon and writes
-the procedural base icon to `.build/icon-base-generated.png` for reference.

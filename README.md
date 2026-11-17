@@ -87,7 +87,7 @@ paragraph. Scroll to reveal it, or use **Bottom** mode.
 
 <p>Highly inspired by <a href="https://apps.apple.com/in/app/platen-paper-ink/id6809529696">Platen — Paper &amp; Ink</a> app by Rafikki Studio for iOS.<br />
 
-> Platen app was not built for macOS, so Inkrail fills that gap with extra features. Not sponspored by Platen.
+> Platen app was not built for macOS, so Inkrail fills that gap with extra features. Not sponsored by Platen.
 
 ---
 
