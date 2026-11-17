@@ -6,7 +6,12 @@
   <p><strong>macOS 13+ · Offline · Open source</strong><br /></p>
 </div>
 
-![Inkrail's writing desk](docs/screenshots/inkrail-light-mode.png)
+🎥 View Video Demo ↓
+<p align="center">
+  <a href="https://youtu.be/VA_Nj2Ip_BQ">
+    <img src="docs/screenshots/inkrail-light-mode.png" alt="Watch the Inkrail demo" width="720">
+  </a>
+</p>
 
 <details>
   <summary>📸 View Screenshots / Gallery</summary>
