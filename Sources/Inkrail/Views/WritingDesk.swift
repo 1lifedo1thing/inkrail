@@ -105,6 +105,7 @@ struct PaperStage: View {
     @InkrailState private var striking = false
     @InkrailState private var strokeSequence = 0
     @InkrailState private var controlsHovered = false
+    @InkrailState private var activeEmphasis: TextEmphasis = []
 
     var body: some View {
         GeometryReader { geometry in
@@ -118,9 +119,8 @@ struct PaperStage: View {
                 : PaperFeedLayout.topInset(viewportHeight: editorHeight,
                                            lineHeight: model.preferences.fontSize * 1.2, position: startPosition)
             let headX = min(width - 64, max(64, caret.x))
-            let railY = startPosition == .bottom
-                ? PaperFeedLayout.caretLimit(viewportHeight: editorHeight, position: .bottom) + 42
-                : min(height - 108, max(150, caret.bottom + 42))
+            let railY = caret.railCenterY(paperHeight: height, editorHeight: editorHeight,
+                                          position: startPosition, hasText: !page.text.isEmpty)
             ZStack(alignment: .topLeading) {
                 LitPaperSurface(size: geometry.size, headX: headX, railY: railY,
                                 preferences: model.preferences, feedOffset: caret.scrollOffset,
@@ -131,10 +131,12 @@ struct PaperStage: View {
                 PaperEditor(
                     pageID: page.id,
                     text: page.text,
+                    formatting: page.formatting,
                     preferences: model.preferences,
-                    onChange: { model.edit($0) },
+                    onChange: { model.edit($0, formatting: $1) },
                     onCaret: { position in
-                        if caret.startPosition != startPosition {
+                        if caret.startPosition != startPosition || caret.followingTextBottom != position.followingTextBottom {
+                            // Move directly to clear the text, including during scrolling.
                             caret = position
                         } else {
                             // Native scrolling drives the paper; only the carriage
@@ -145,7 +147,8 @@ struct PaperStage: View {
                             withAnimation(motion) { caret = position }
                         }
                     },
-                    onStroke: handleStroke
+                    onStroke: handleStroke,
+                    onEmphasisChange: { activeEmphasis = $0 }
                 )
                 .frame(width: width, height: editorHeight)
                 if page.text.isEmpty {
@@ -203,6 +206,12 @@ struct PaperStage: View {
                 .tracking(1.1)
                 .foregroundColor(model.preferences.nightMode ? Color.white.opacity(0.32) : DeskPalette.mutedInk.opacity(0.55))
             Spacer()
+            HStack(spacing: 0) {
+                emphasisButton(.bold, symbol: "bold", title: "Bold", shortcut: "b")
+                emphasisButton(.italic, symbol: "italic", title: "Italic", shortcut: "i")
+                emphasisButton(.underline, symbol: "underline", title: "Underline", shortcut: "u")
+            }
+            .padding(.trailing, 10)
             QuietButton(symbol: model.preferences.soundEnabled ? "speaker.wave.1" : "speaker.slash",
                         label: model.preferences.soundEnabled ? "Mute sounds · ⇧⌘M" : "Turn sounds on · ⇧⌘M",
                         onDark: model.preferences.nightMode, themedHoverLabel: true) {
@@ -226,11 +235,24 @@ struct PaperStage: View {
         }
     }
 
+    private func emphasisButton(_ emphasis: TextEmphasis, symbol: String, title: String,
+                                shortcut: KeyEquivalent) -> some View {
+        let active = activeEmphasis.contains(emphasis)
+        return QuietButton(symbol: symbol, label: "\(title) · ⌘\(shortcut.character.uppercased())",
+                           onDark: model.preferences.nightMode, active: active, themedHoverLabel: true) {
+            NotificationCenter.default.post(name: .inkrailToggleEmphasis, object: emphasis)
+        }
+        .keyboardShortcut(shortcut)
+        .accessibilityLabel(title)
+        .accessibilityValue(active ? "On" : "Off")
+    }
+
     private func handleStroke(_ kind: StrokeKind) {
         if model.preferences.soundEnabled {
             SoundEngine.shared.play(kind, volume: model.preferences.soundVolume,
                                     style: model.preferences.typewriterSound)
         }
+        guard kind != .navigation else { return }
         strokeSequence += 1
         let sequence = strokeSequence
         striking = true

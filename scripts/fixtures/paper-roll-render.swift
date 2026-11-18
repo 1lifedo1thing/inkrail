@@ -4,7 +4,7 @@ import InkrailCore
 
 // These declarations satisfy the editor's app-level interfaces without loading
 // AppModel, a user's documents/preferences, or SoundEngine.
-enum StrokeKind { case key, space, carriage, erase }
+enum StrokeKind { case key, space, carriage, erase, navigation }
 extension Notification.Name {
     static let inkrailFocusEditor = Notification.Name("Inkrail.FocusEditor")
 }
@@ -72,15 +72,14 @@ private struct NativeRollScene: View {
         let editorHeight = PaperFeedLayout.editorHeight(paperHeight: height, position: start,
                                                        motion: preferences.paperMotion)
         let headX = min(width - 64, max(64, caret.x))
-        let railY = start == .bottom
-            ? PaperFeedLayout.caretLimit(viewportHeight: editorHeight, position: .bottom) + 42
-            : min(height - 108, max(150, caret.bottom + 42))
+        let railY = caret.railCenterY(paperHeight: height, editorHeight: editorHeight,
+                                      position: start, hasText: !text.isEmpty)
         let size = CGSize(width: width, height: height)
         return ZStack(alignment: .topLeading) {
             LitPaperSurface(size: size, headX: headX, railY: railY, preferences: preferences,
                             feedOffset: caret.scrollOffset)
             PaperEditor(pageID: pageID, text: text, preferences: preferences,
-                        onChange: { text = $0 },
+                        onChange: { value, _ in text = value },
                         onCaret: { caret = $0; observation.caret = $0 },
                         onStroke: { _ in })
                 .frame(width: width, height: editorHeight)

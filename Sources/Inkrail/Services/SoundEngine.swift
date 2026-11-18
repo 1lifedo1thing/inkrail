@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import InkrailCore
 
-enum StrokeKind { case key, space, carriage, erase }
+enum StrokeKind { case key, space, carriage, erase, navigation }
 
 /// Original synthesized samples, loaded only when a sound style is needed.
 /// At most six banks of six samples × five voices are retained. Preview
@@ -45,7 +45,7 @@ final class SoundEngine {
         guard let bank = banks[style] else { return false }
         let name: String
         switch kind {
-        case .key: name = "key-\(Int.random(in: 1...3))"
+        case .key, .navigation: name = "key-\(Int.random(in: 1...3))"
         case .space: name = "space"
         case .carriage: name = "return"
         case .erase: name = "erase"

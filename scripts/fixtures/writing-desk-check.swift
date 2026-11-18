@@ -5,7 +5,7 @@ import InkrailCore
 // Inert boundary dependencies: production WritingDesk/PaperStage and all their
 // visible subviews compile unchanged, while persistence, sound and unused
 // sheets are deliberately absent from this isolated native rendering check.
-enum StrokeKind { case key, space, carriage, erase }
+enum StrokeKind { case key, space, carriage, erase, navigation }
 @MainActor final class SoundEngine {
     static let shared = SoundEngine()
     func play(_ kind: StrokeKind, volume: Double, style: TypewriterSound) {}
@@ -30,7 +30,12 @@ extension Bundle {
         self.preferences = preferences
         self.selectedPage = Page(createdAt: Date(timeIntervalSince1970: 1794652800), text: text)
     }
-    func edit(_ text: String) { selectedPage?.text = text }
+    func edit(_ text: String, formatting: [TextFormatRun] = []) {
+        guard var page = selectedPage else { return }
+        page.text = text
+        page.formatting = formatting
+        selectedPage = page
+    }
     func createPage() { selectedPage = Page() }
     func focusEditor() {}
     func export() {}
@@ -48,6 +53,13 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
     static let longText = (1...28).map { "Line \($0): The paper carries another quiet thought." }.joined(separator: "\n")
     static func main() throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
+        if CommandLine.arguments.contains("--top-editing-only") {
+            for motion in [PaperMotion.sheet, .roll] {
+                for lines in [12, 48] { try checkTopRevision(motion: motion, lines: lines) }
+            }
+            print("PASS Top revision and end-of-letter checks in Sheet and Roll, with short and overflowing letters.")
+            return
+        }
         if CommandLine.arguments.contains("--desk-material-diagnostic") {
             try renderPaperBlendDiagnostic()
             return
@@ -139,6 +151,70 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
         }
         print("PASS production WritingDesk native renders and housing/rail pixel checks; unshown windows, inert model, not running-app screenshots.")
     }
+    static func checkTopRevision(motion: PaperMotion, lines: Int) throws {
+        let name = "top-revision-\(motion.rawValue)-\(lines)"
+        let body = (1...lines).map { "Line \($0) has words across the page." }.joined(separator: "\n")
+        var preferences = WritingPreferences()
+        preferences.paperStartPosition = .top
+        preferences.paperMotion = motion
+        let model = AppModel(preferences: preferences, text: body)
+        let size = CGSize(width: 1080, height: 820)
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isRestorable = false
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSHostingView(rootView: WritingDesk().environmentObject(model))
+        host.frame = CGRect(origin: .zero, size: size)
+        window.contentView = host
+        settle(host)
+        guard let editor = descendant(InkTextView.self, in: host),
+              let clip = editor.enclosingScrollView?.contentView else {
+            throw CheckFailure(description: "\(name): missing editor")
+        }
+        func textRect(_ range: NSRange) -> CGRect {
+            let screen = editor.firstRect(forCharacterRange: range, actualRange: nil)
+            return host.convert(window.convertFromScreen(screen), from: nil)
+        }
+        func capsuleRect() throws -> CGRect {
+            guard let capsule = capsuleFocusView(in: host) else { throw CheckFailure(description: "\(name): missing capsule") }
+            return capsule.convert(capsule.bounds, to: host)
+        }
+        window.makeFirstResponder(editor)
+        let location = NSMaxRange((body as NSString).range(of: "Line 4 has "))
+        editor.setSelectedRange(NSRange(location: location, length: 0))
+        editor.insertText("more ", replacementRange: editor.selectedRange())
+        settle(host)
+        let viewport = clip.convert(clip.bounds, to: host)
+        let caret = textRect(editor.selectedRange())
+        try require(caret.minY >= viewport.minY - 1 && caret.maxY <= viewport.maxY + 1,
+                    "\(name): revision caret is outside the viewport")
+        let nextLine = (editor.string as NSString).range(of: "Line 5")
+        try require(viewport.contains(textRect(nextLine)), "\(name): next line is outside the viewport")
+        // These short paragraphs each occupy one native line. The hammer is
+        // the highest part of the mechanism and sits within 2 pt of its frame top.
+        let hammerTop = try capsuleRect().minY + 2
+        let source = editor.string as NSString
+        for line in 5...lines {
+            let rect = textRect(source.range(of: "Line \(line) "))
+            let visibleLine = rect.intersection(viewport)
+            if !visibleLine.isEmpty {
+                try require(visibleLine.maxY <= hammerTop + 1,
+                            "\(name): line \(line) extends to \(visibleLine.maxY), mechanism begins at \(hammerTop)")
+            }
+        }
+        try capture(host, model: model, name: name, size: size)
+        try require(failures.isEmpty, "\(name): \(failures.joined(separator: ", "))")
+
+        editor.setSelectedRange(NSRange(location: source.length, length: 0))
+        editor.insertText("!", replacementRange: editor.selectedRange())
+        settle(host)
+        let endCaret = textRect(editor.selectedRange())
+        let capsule = try capsuleRect()
+        try require(abs(capsule.midX - endCaret.minX) <= 2 && abs(capsule.midY - endCaret.maxY - 42) <= 2,
+                    "\(name): capsule did not return to the normal typing position")
+    }
+
     static func renderPeakStrike() throws {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             throw CheckFailure(description: "Peak-strike overflow check requires Reduce Motion off; system setting was preserved")

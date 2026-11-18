@@ -21,7 +21,7 @@ final class PaperFeedLayoutTests: XCTestCase {
     func testDefaultPaperKeepsBothModesAboveTheSameMechanismBand() {
         let topHeight = PaperFeedLayout.editorHeight(paperHeight: 708, position: .top)
         let bottomHeight = PaperFeedLayout.editorHeight(paperHeight: 708, position: .bottom)
-        XCTAssertEqual(topHeight, 640)
+        XCTAssertEqual(topHeight, 560)
         XCTAssertEqual(bottomHeight, 536)
         XCTAssertEqual(PaperFeedLayout.caretLimit(viewportHeight: topHeight, position: .top), 532)
         XCTAssertEqual(PaperFeedLayout.caretLimit(viewportHeight: bottomHeight, position: .bottom), 532)
@@ -67,11 +67,11 @@ final class PaperFeedLayoutTests: XCTestCase {
 
     func testTopModePreservesManualScrollAndOnlyFeedsWhenNeeded() {
         XCTAssertEqual(PaperFeedLayout.desiredScrollOffset(caretBottom: 300, currentOffset: 120,
-                                                          viewportHeight: 640, position: .top), 120)
+                                                          viewportHeight: 560, position: .top), 120)
         XCTAssertEqual(PaperFeedLayout.desiredScrollOffset(caretBottom: 700, currentOffset: 120,
-                                                          viewportHeight: 640, position: .top), 168)
+                                                          viewportHeight: 560, position: .top), 168)
         XCTAssertEqual(PaperFeedLayout.desiredScrollOffset(caretBottom: 68, currentOffset: 0,
-                                                          viewportHeight: 640, position: .top), 0)
+                                                          viewportHeight: 560, position: .top), 0)
     }
 
     func testChangingModeRepositionsTheSameLogicalLine() {
@@ -79,7 +79,7 @@ final class PaperFeedLayoutTests: XCTestCase {
         let topCaret = 68 + logicalCaretBottom
         let bottomCaret = 508 + logicalCaretBottom
         let topOffset = PaperFeedLayout.desiredScrollOffset(caretBottom: topCaret, currentOffset: 0,
-                                                          viewportHeight: 640, position: .top)
+                                                          viewportHeight: 560, position: .top)
         let bottomOffset = PaperFeedLayout.desiredScrollOffset(caretBottom: bottomCaret, currentOffset: 0,
                                                              viewportHeight: 536, position: .bottom)
         XCTAssertEqual(topCaret - topOffset, 164)

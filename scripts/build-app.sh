@@ -21,9 +21,11 @@ echo "Building Inkrail for $(uname -m)…"
 # executable that a Python environment, Homebrew or another PATH entry adds.
 xcrun --sdk macosx swift build -c release --product Inkrail
 BIN="$(xcrun --sdk macosx swift build -c release --show-bin-path)"
-APP="$ROOT/dist/Inkrail.app"
-# Remove only this build's known output, never the user's installed app or data.
-rm -rf "$APP"
+FINAL_APP="$ROOT/dist/Inkrail.app"
+mkdir -p "$ROOT/dist"
+STAGING_DIR="$(mktemp -d "$ROOT/dist/.inkrail-build.XXXXXX")"
+trap 'rm -rf "$STAGING_DIR"' EXIT
+APP="$STAGING_DIR/Inkrail.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/Inkrail" "$APP/Contents/MacOS/Inkrail"
 cp "$ROOT/packaging/Info.plist" "$APP/Contents/Info.plist"
@@ -51,7 +53,7 @@ else
 fi
 cp -R "$ROOT/Sources/Inkrail/Resources/." "$PACKAGED_RESOURCE_DIR/"
 
-ICONSET="$ROOT/.build/Inkrail.iconset"
+ICONSET="$STAGING_DIR/Inkrail.iconset"
 ICON_SOURCE="$ROOT/Sources/Inkrail/Resources/AppIcon.png"
 mkdir -p "$ICONSET"
 for size in 16 32 128 256 512; do
@@ -63,7 +65,24 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # Ad-hoc signing for a local build. This is NOT Developer ID signing/notarization.
 codesign --force --sign - "$APP"
 codesign --verify --deep --strict "$APP"
+# Publish only after the icon and signature are in place. Keep an existing
+# bundle directory so Finder references continue to identify the same app.
+if [[ -d "$FINAL_APP" ]]; then
+    xcrun --sdk macosx swift -e '
+        import Foundation
+        let files = FileManager.default
+        let source = URL(fileURLWithPath: CommandLine.arguments[1])
+        let target = URL(fileURLWithPath: CommandLine.arguments[2])
+        if files.fileExists(atPath: target.path) {
+            _ = try files.replaceItemAt(target, withItemAt: source, options: .usingNewMetadataOnly)
+        } else {
+            try files.moveItem(at: source, to: target)
+        }' "$APP/Contents" "$FINAL_APP/Contents"
+else
+    mv "$APP" "$FINAL_APP"
+fi
+touch "$FINAL_APP"
 echo ""
-echo "Created: $APP"
-echo "Launch with: open \"$APP\""
+echo "Created: $FINAL_APP"
+echo "Launch with: open \"$FINAL_APP\""
 echo "You can also drag Inkrail.app to Applications. Your letters are stored separately."

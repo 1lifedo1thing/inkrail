@@ -47,6 +47,12 @@ final class MemoryDefaults: UserDefaults {
         let temporary = fm.temporaryDirectory.appendingPathComponent("Inkrail-storage-model-\(UUID().uuidString)")
         try fm.createDirectory(at: temporary, withIntermediateDirectories: false)
         defer { try? fm.removeItem(at: temporary) }
+        try formattingSurvivesRestart(in: temporary)
+        try privateTitles(in: temporary)
+        checkLetterPreviews()
+        checkMarkdownExport()
+        checkInlineMarkdownShortcuts()
+        try checkMarkdownImport(in: temporary)
         try successfulCopyAndRestart(in: temporary)
         try missingLocation(in: temporary)
         try failedPendingSave(in: temporary)
@@ -56,6 +62,206 @@ final class MemoryDefaults: UserDefaults {
         try retentionOpeningAndExpiredRestore(in: temporary)
         try retentionAfterLocationChange(in: temporary)
         print("PASS: \(checks)/\(checks) production AppModel storage checks. Disposable libraries and in-memory defaults only; no picker or live app interaction.")
+    }
+
+    static func checkLetterPreviews() {
+        let longSentence = String(repeating: "a long letter ", count: 15) + "arrived."
+        let samples: [(String, String)] = [
+            ("Dear Mum,\r\nWe're home.\n\nit snowed. More later.", "Dear Mum, We're home. it snowed..."),
+            ("Dr. Lee paid 3.14. “Really?” She nodded.", "Dr. Lee paid 3.14. “Really?”..."),
+            ("春天来了。你听见了吗？第三句。", "春天来了。你听见了吗？..."),
+            (longSentence + " Another followed. More later.", longSentence + " Another followed..."),
+            ("Just one.", "Just one..."),
+            ("One. Still writing", "One. Still writing..."),
+            ("An unfinished thought", "An unfinished thought..."),
+            (String(repeating: "x", count: 200), String(repeating: "x", count: 140) + "..."),
+            (" \n\t ", "")
+        ]
+        for (body, expected) in samples {
+            check(Page(text: body).preview == expected, "letter preview should read \(expected.debugDescription)")
+        }
+    }
+
+    static func checkMarkdownExport() {
+        let before = "# Journal\n\n[home](notes.md)\npre"
+        let selected = "🖋_x*<&>  \r\n \r\nnext"
+        let after = "fix and `raw_code`"
+        let text = before + selected + after
+        check(Page(text: text).markdownText.utf8.elementsEqual(text.utf8),
+              "unformatted Markdown exports the exact handwritten source")
+        let run = TextFormatRun(location: before.utf16.count, length: selected.utf16.count,
+                                emphasis: [.bold, .italic, .underline])
+        let page = Page(text: text, formatting: [run])
+        let firstLine = "<strong><em><u>🖋\\_x\\*&lt;&amp;&gt;</u></em></strong>"
+        let secondLine = "<strong><em><u>next</u></em></strong>"
+        let expected = before + firstLine + "  \r\n \r\n" + secondLine + after
+        check(page.markdownText.utf8.elementsEqual(expected.utf8),
+              "Markdown retains intraword emphasis, Unicode, original paragraphs and literal styled punctuation")
+        check(page.text.utf8.elementsEqual(text.utf8), "the plain-text export source keeps the original words")
+
+        let simpleStyles: [(TextEmphasis, String)] = [(.bold, "**word**"), (.italic, "*word*"),
+                                                       (.strikethrough, "~~word~~"), (.code, "`word`")]
+        for (emphasis, expected) in simpleStyles {
+            let styled = Page(text: "word", formatting: [TextFormatRun(location: 0, length: 4, emphasis: emphasis)])
+            check(styled.markdownText == expected, "straightforward emphasis exports conventional Markdown markers")
+        }
+        let code = Page(text: "`x` &", formatting: [TextFormatRun(location: 0, length: 5, emphasis: .code)])
+        check(code.markdownText == "`` `x` & ``", "inline code with literal backticks round trips with a longer fence")
+        let blocks = "# title\n> - item\n```\n*literal*\n```"
+        let styledBlocks = Page(text: blocks, formatting: [TextFormatRun(location: 0, length: blocks.utf16.count, emphasis: .bold)])
+        check(styledBlocks.markdownText == "# **title**\n> - **item**\n```\n*literal*\n```",
+              "whole-line styling preserves heading, nested quote/list markers and fenced examples")
+    }
+
+    static func checkInlineMarkdownShortcuts() {
+        let prefix = "Earlier paragraph\n🖋 "
+        let examples: [(String, TextEmphasis)] = [("*", .italic), ("_", .italic), ("**", .bold), ("__", .bold),
+                                                 ("***", [.bold, .italic]), ("___", [.bold, .italic]),
+                                                 ("~~", .strikethrough), ("`", .code)]
+        for (marker, emphasis) in examples {
+            let content = "नमस्ते🖋"
+            let keys = marker + content + marker
+            var text = prefix
+            var matches: [MarkdownShortcut] = []
+            for key in keys {
+                text.append(key)
+                if let match = MarkdownShortcut.match(in: text as NSString, at: text.utf16.count) { matches.append(match) }
+            }
+            check(matches.count == 1 && matches[0].emphasis == emphasis
+                  && matches[0].range == NSRange(location: prefix.utf16.count, length: keys.utf16.count)
+                  && matches[0].contentRange == NSRange(location: prefix.utf16.count + marker.count, length: content.utf16.count),
+                  "\(marker) finishes once on the final closing keystroke with UTF-16 ranges")
+        }
+        for literal in [#"\*escaped*"#, #"**open\**"#, "snake_case_more_", "_ leading_",
+                        "*trailing *", "*first\nsecond*", "`**literal**", "half***", "old **done** then**"] {
+            check(MarkdownShortcut.match(in: literal as NSString, at: literal.utf16.count) == nil,
+                  "literal input stays intact: \(literal.debugDescription)")
+        }
+        let inside = "use `a * b` here"
+        let insertion = (inside as NSString).range(of: "` here").location + 1
+        let match = MarkdownShortcut.match(in: inside as NSString, at: insertion)
+        check(match?.emphasis == .code && match?.contentRange == NSRange(location: 5, length: 5),
+              "inline code can be completed in the middle of a letter")
+    }
+
+    static func checkMarkdownImport(in temporary: URL) throws {
+        let model = AppModel(defaults: MemoryDefaults(), defaultRootURL: temporary.appendingPathComponent("Imports"),
+                             schedulesAutosave: false)
+        let example = "\n> - [**label**](https://example.com/a_(b))\r\n\n~~~swift\n*literal*\n~~~\n    **example**\n\\*escaped*"
+        let source = "# **Heading**\nBold **one *two* end** and `a**b`." + example
+        let file = temporary.appendingPathComponent("Handwritten.MD")
+        try source.write(to: file, atomically: true, encoding: .utf8)
+        try model.importText(from: file)
+        let expected = "# Heading\nBold one two end and a**b." + example
+        check(model.currentText == expected, "Markdown import retains block prefixes, links, fences, escapes and line endings")
+        let ascii = expected as NSString
+        let runs = [("Heading", TextEmphasis.bold), ("one ", .bold), ("two", [.bold, .italic]), (" end", .bold), ("a**b", .code)]
+        check(model.selectedPage?.formatting == runs.map { word, style in
+            let range = ascii.range(of: word)
+            return TextFormatRun(location: range.location, length: range.length, emphasis: style)
+        }, "nested Markdown import restores independent editable spans")
+
+        let plain = temporary.appendingPathComponent("Handwritten.txt")
+        try source.write(to: plain, atomically: true, encoding: .utf8)
+        try model.importText(from: plain)
+        check(model.currentText.utf8.elementsEqual(source.utf8) && model.selectedPage?.formatting == [],
+              "plain-text import retains typed markers verbatim")
+
+        let word = "🖋_x*<&>"
+        let literal = "`x` &"
+        let richText = "pre" + word + "fix " + literal
+        let original = Page(text: richText, formatting: [
+            TextFormatRun(location: 3, length: word.utf16.count, emphasis: [.bold, .italic, .underline]),
+            TextFormatRun(location: richText.utf16.count - literal.utf16.count, length: literal.utf16.count, emphasis: .code)
+        ])
+        let imported = Page(markdown: original.markdownText)
+        check(imported.text == original.text && imported.formatting == original.formatting,
+              "exported intraword underline, combined emphasis, escaped punctuation and backticks round trip")
+    }
+
+    static func formattingSurvivesRestart(in temporary: URL) throws {
+        let root = temporary.appendingPathComponent("Formatted letters")
+        let defaults = MemoryDefaults()
+        let model = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+        let words = "A🖋 letter"
+        model.createPage(text: words)
+        let repository = try PageRepository(rootURL: root)
+        let file = repository.fileURL(for: model.selectedID!)
+        let plainData = try Data(contentsOf: file)
+        var json = try JSONSerialization.jsonObject(with: plainData) as! [String: Any]
+        check(json["formatting"] == nil, "plain letters retain the original JSON fields")
+        let legacy = try repository.load().pages.first { $0.id == model.selectedID }
+        check(legacy?.text == words && legacy?.formatting == [], "legacy letters load without emphasis")
+
+        let pen = TextFormatRun(location: 1, length: 2, emphasis: [.bold, .italic])
+        let word = TextFormatRun(location: 4, length: 6, emphasis: .underline)
+        model.edit(words, formatting: [pen, word])
+        check(model.isDirty && model.flush(), "an emphasis-only edit is saved")
+        let reopened = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+        check(reopened.currentText == words && reopened.selectedPage?.formatting == [pen, word],
+              "combined emphasis, UTF-16 ranges and plain words survive a restart")
+        reopened.edit(words, formatting: [pen, word])
+        check(!reopened.isDirty, "identical words and emphasis retain the saved state")
+        reopened.edit(words, formatting: [])
+        check(reopened.isDirty && reopened.flush(), "clearing emphasis is saved")
+        let cleared = try repository.load().pages.first { $0.id == model.selectedID }
+        check(cleared?.formatting == [], "reopening restores cleared emphasis")
+
+        json["formatting"] = [
+            ["location": -1, "length": 1, "emphasis": 1],
+            ["location": 2, "length": 1, "emphasis": 2],
+            ["location": 4, "length": 6, "emphasis": 4],
+            ["location": 9, "length": Int.max, "emphasis": 1]
+        ]
+        try JSONSerialization.data(withJSONObject: json).write(to: file, options: .atomic)
+        let repaired = try repository.load().pages.first { $0.id == model.selectedID }
+        check(repaired?.text == words && repaired?.formatting == [word],
+              "invalid UTF-16 ranges leave the letter and its valid emphasis readable")
+    }
+
+    static func privateTitles(in temporary: URL) throws {
+        let root = temporary.appendingPathComponent("Private titles")
+        let repository = try PageRepository(rootURL: root)
+        let id = UUID()
+        let letter: [String: Any] = [
+            "id": id.uuidString, "createdAt": "2020-01-02T12:00:00Z", "modifiedAt": "2021-03-04T12:00:00Z",
+            "text": "Dear Mum,\nHappy birthday."
+        ]
+        try JSONSerialization.data(withJSONObject: letter).write(to: repository.fileURL(for: id))
+        let defaults = MemoryDefaults()
+        let model = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+        check(model.selectedPage?.title == "Dear Mum," && model.selectedPage?.privateTitle == nil,
+              "letters saved before private titles use their opening line")
+        model.edit(model.currentText, formatting: [TextFormatRun(location: 0, length: 4, emphasis: .bold)])
+        let original = model.selectedPage!
+        model.createPage(text: "Another letter")
+        let activeID = model.selectedID
+        model.showLibrary = true
+        let title = "Mum’s birthday"
+        model.rename(id, to: "  \(title)  ")
+        check(model.selectedID == activeID && model.showLibrary, "renaming another letter keeps the desk and letter box in place")
+        let renamed = model.pages.first { $0.id == id }!
+        check(renamed.title == title && renamed.privateTitle == title, "a trimmed private title labels the letter")
+        check(renamed.createdAt == original.createdAt && renamed.modifiedAt == original.modifiedAt,
+              "renaming preserves the letter's writing dates")
+        check(renamed.text == original.text && renamed.formatting == original.formatting &&
+              renamed.markdownText == original.markdownText && renamed.exportName == "Dear Mum,",
+              "renaming preserves the formatted letter and excludes its private title from exports and their filenames")
+        check(model.flush(), "the private title saves")
+
+        let reopened = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+        check(reopened.pages.first { $0.id == id }?.privateTitle == title, "the private title survives relaunch")
+        reopened.moveToTrash(id)
+        check(reopened.deletedPages().first { $0.id == id }?.title == title, "Recently Deleted shows the private title")
+        reopened.restore(id)
+        reopened.select(id)
+        reopened.edit("A new opening")
+        check(reopened.selectedPage?.title == title, "the restored title stays attached when the opening line is edited")
+        reopened.rename(id, to: " \t ")
+        check(reopened.flush(), "clearing the private title saves")
+        let cleared = try repository.load().pages.first { $0.id == id }
+        check(cleared?.title == "A new opening" && cleared?.privateTitle == nil,
+              "clearing the title restores the current opening line across reloads")
     }
 
     static func successfulCopyAndRestart(in temporary: URL) throws {

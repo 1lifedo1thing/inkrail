@@ -6,12 +6,27 @@ struct CaretPosition: Equatable {
     var x: CGFloat = 78
     var top: CGFloat = 68
     var bottom: CGFloat = 104
+    var followingTextBottom: CGFloat?
     var scrollOffset: CGFloat = 0
     var visible = true
     var startPosition: PaperStartPosition?
+
+    func railCenterY(paperHeight: CGFloat, editorHeight: CGFloat, position: PaperStartPosition,
+                     hasText: Bool) -> CGFloat {
+        if position == .bottom {
+            return PaperFeedLayout.caretLimit(viewportHeight: editorHeight, position: .bottom) + 42
+        }
+        let writingY = min(paperHeight - 108, max(150, bottom + 42))
+        // Until the first layout, a previously written page can fill the viewport.
+        let textEdge = startPosition == .top ? followingTextBottom : (hasText ? editorHeight : nil)
+        guard let textEdge else { return writingY }
+        // The hammer reaches 53 pt above the rail at the peak of a strike.
+        return max(writingY, min(textEdge, editorHeight) + 56)
+    }
 }
 
 final class InkTextView: NSTextView {
+    var baseAttributes: [NSAttributedString.Key: Any] = [:]
     var onStroke: ((StrokeKind) -> Void)?
     var onLayout: (() -> Void)?
     var onCompositionEnd: (() -> Void)?
@@ -19,20 +34,86 @@ final class InkTextView: NSTextView {
     var onInteraction: (() -> Void)?
     private(set) var performingNativeEdit = false
 
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        [LetterSelection.pasteboardType] + super.writablePasteboardTypes
+    }
+
+    override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        if type == LetterSelection.pasteboardType {
+            guard let data = encodedSelection() else { return false }
+            return pasteboard.setData(data, forType: type)
+        }
+        return super.writeSelection(to: pasteboard, type: type)
+    }
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [LetterSelection.pasteboardType, .rtf, .string] }
+
+    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        let content: NSAttributedString?
+        if type == LetterSelection.pasteboardType, let data = pasteboard.data(forType: type) {
+            content = decodeSelection(data)
+        } else if type == .rtf, let data = pasteboard.data(forType: type) {
+            content = NSAttributedString(rtf: data, documentAttributes: nil).map(styledPaste)
+        } else {
+            content = nil
+        }
+        guard let content else { return super.readSelection(from: pasteboard, type: .string) }
+        breakUndoCoalescing()
+        super.insertText(content, replacementRange: selectedRange())
+        return true
+    }
+
+    override func doCommand(by selector: Selector) {
+        // AppKit resolves arrows, their modifiers, and the user's key bindings
+        // into movement commands. Input methods keep control of marked text.
+        if !hasMarkedText(), NSStringFromSelector(selector).hasPrefix("move") {
+            onStroke?(.navigation)
+        }
+        super.doCommand(by: selector)
+    }
+
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
         let wasComposing = hasMarkedText()
         let inserted = (insertString as? String) ?? (insertString as? NSAttributedString)?.string ?? ""
+        let isTyping = !inserted.isEmpty && (wasComposing || inserted.count <= 4)
+        let hasLineBreak = isTyping && inserted.contains(where: \.isNewline)
+        let defaultRange = wasComposing ? markedRange() : selectedRange()
+        let editRange = replacementRange.location == NSNotFound ? defaultRange : replacementRange
+        let previousCaret = isTyping && !hasLineBreak ? insertionRect(at: editRange.location) : nil
         onWillEdit?()
         performingNativeEdit = true
         defer { performingNativeEdit = false }
-        super.insertText(insertString, replacementRange: replacementRange)
+        if !wasComposing, let replacement = markdownReplacement(for: inserted, at: editRange) {
+            let followingAttributes = typingAttributes
+            breakUndoCoalescing()
+            super.insertText(replacement.text, replacementRange: replacement.range)
+            typingAttributes = followingAttributes
+            breakUndoCoalescing()
+        } else {
+            super.insertText(insertString, replacementRange: replacementRange)
+        }
         // AppKit handles input methods; never reinterpret raw key codes as text.
         (layoutManager as? InkLayoutManager)?.composing = hasMarkedText()
         if wasComposing && !hasMarkedText() { onCompositionEnd?() }
-        guard !inserted.isEmpty else { return }
-        if inserted.contains("\n") && inserted.count <= 2 { onStroke?(.carriage) }
+        guard isTyping else { return }
+        if hasLineBreak && inserted.count <= 2 { onStroke?(.carriage) }
         else if inserted == " " { onStroke?(.space) }
-        else if inserted.count <= 4 || wasComposing { onStroke?(.key) }
+        else { onStroke?(.key) }
+        if let previousCaret, !hasMarkedText(), let currentCaret = insertionRect(at: selectedRange().location),
+           currentCaret.midY >= previousCaret.maxY {
+            onStroke?(.carriage)
+        }
+    }
+
+    // A zero-length glyph range gives the insertion point in the native
+    // layout, including an empty last line. Scrolling never clips this rect.
+    private func insertionRect(at location: Int) -> NSRect? {
+        guard let layoutManager, let textContainer, let textStorage,
+              location != NSNotFound, location <= textStorage.length else { return nil }
+        let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: location, length: 0),
+                                              actualCharacterRange: nil)
+        let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        return rect.height > 0 ? rect : nil
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -67,7 +148,14 @@ final class InkTextView: NSTextView {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
+        // TextKit fits the document's height as the letter grows. Its width
+        // must always be the visible sheet's so widthTracksTextView wraps at
+        // the paper margins, even during a native resize or caret reveal.
+        var size = newSize
+        if let clip = superview as? InkClipView, clip.bounds.width > 0 {
+            size.width = clip.bounds.width
+        }
+        super.setFrameSize(size)
         onLayout?()
     }
 
@@ -115,6 +203,7 @@ final class InkClipView: NSClipView {
 
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var constrained = super.constrainBoundsRect(proposedBounds)
+        constrained.origin.x = 0
         // AppKit owns scrolling while an input method is composing. The bound
         // is refreshed from the committed end insertion rectangle afterward.
         if isFlipped, (documentView as? NSTextView)?.hasMarkedText() != true,
@@ -140,10 +229,12 @@ final class InkScrollView: NSScrollView {
 struct PaperEditor: NSViewRepresentable {
     var pageID: UUID
     var text: String
+    var formatting: [TextFormatRun] = []
     var preferences: WritingPreferences
-    var onChange: (String) -> Void
+    var onChange: (String, [TextFormatRun]) -> Void
     var onCaret: (CaretPosition) -> Void
     var onStroke: (StrokeKind) -> Void
+    var onEmphasisChange: ((TextEmphasis) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -165,6 +256,7 @@ struct PaperEditor: NSViewRepresentable {
         // Explicit TextKit 1 stack: glyph cosmetics never replace native editing.
         let storage = NSTextStorage()
         let manager = InkLayoutManager()
+        manager.delegate = manager
         storage.addLayoutManager(manager)
         let container = NSTextContainer(containerSize: NSSize(width: 640, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -174,7 +266,7 @@ struct PaperEditor: NSViewRepresentable {
         let editor = InkTextView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), textContainer: container)
         editor.isEditable = true
         editor.isSelectable = true
-        editor.isRichText = false
+        editor.isRichText = true
         editor.importsGraphics = false
         editor.allowsUndo = true
         editor.usesFontPanel = false
@@ -194,6 +286,7 @@ struct PaperEditor: NSViewRepresentable {
         editor.isContinuousSpellCheckingEnabled = false
         editor.setAccessibilityLabel("Letter. Native text editor.")
         editor.delegate = context.coordinator
+        storage.delegate = context.coordinator
         scroll.documentView = editor
         let coordinator = context.coordinator
         coordinator.editor = editor
@@ -223,15 +316,20 @@ struct PaperEditor: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
         coordinator.stopObserving()
         coordinator.editor?.delegate = nil
+        coordinator.editor?.textStorage?.delegate = nil
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
         var parent: PaperEditor
         weak var editor: InkTextView?
         weak var scroll: NSScrollView?
         private var loadedID: UUID?
         private var appliedPreferences: WritingPreferences?
+        private var knownFormatting: [TextFormatRun] = []
+        private var restoreTypingFromText = true
+        private var lastEmphasis: TextEmphasis?
+        private var pendingBlockRange: NSRange?
         private var tokens: [NSObjectProtocol] = []
         private var updating = false
         private var scheduled = false
@@ -261,6 +359,17 @@ struct PaperEditor: NSViewRepresentable {
         }
 
         func observe() {
+            tokens.append(NotificationCenter.default.addObserver(
+                forName: .inkrailToggleEmphasis, object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let flag = notification.object as? TextEmphasis else { return }
+                MainActor.assumeIsolated {
+                    guard let editor = self?.editor, let window = editor.window,
+                          window.isKeyWindow, window.attachedSheet == nil else { return }
+                    window.makeFirstResponder(editor)
+                    editor.toggleEmphasis(flag)
+                }
+            })
             if let clip = scroll?.contentView {
                 // A height-only shrink need not change the document frame or
                 // scroll origin. Observe viewport frame changes as well.
@@ -304,11 +413,17 @@ struct PaperEditor: NSViewRepresentable {
                 loadedID = parent.pageID
                 appliedPreferences = nil
                 lastCaret = nil
-            } else if editor.string != parent.text && !editor.hasMarkedText() {
+            } else if !editor.hasMarkedText() && !editor.string.utf8.elementsEqual(parent.text.utf8) {
                 let selection = editor.selectedRange()
                 editor.string = parent.text
                 editor.setSelectedRange(NSRange(location: min(selection.location, (parent.text as NSString).length), length: 0))
                 textReplaced = true
+            }
+            if switched || textReplaced || (!editor.hasMarkedText() && knownFormatting != parent.formatting) {
+                knownFormatting = parent.formatting
+                restoreTypingFromText = true
+                appliedPreferences = nil
+                lastEmphasis = nil
             }
             updating = false
             if switched {
@@ -332,17 +447,16 @@ struct PaperEditor: NSViewRepresentable {
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font, .foregroundColor: ink, .paragraphStyle: paragraph, .ligature: 0
             ]
-            let selected = editor.selectedRanges
-            editor.font = font
             editor.textColor = ink
             editor.insertionPointColor = ink.withAlphaComponent(0.48)
             editor.selectedTextAttributes = [
                 .backgroundColor: NSColor(calibratedRed: 0.55, green: 0.59, blue: 0.44, alpha: 0.28)
             ]
             editor.defaultParagraphStyle = paragraph
-            editor.typingAttributes = attributes
-            editor.textStorage?.setAttributes(attributes, range: NSRange(location: 0, length: (editor.string as NSString).length))
-            editor.selectedRanges = selected
+            editor.applyLetterStyle(attributes, runs: knownFormatting, restoreTypingFromText: restoreTypingFromText)
+            editor.refreshMarkdownBlocks()
+            pendingBlockRange = nil
+            restoreTypingFromText = false
             (editor.layoutManager as? InkLayoutManager)?.wornInk = prefs.wornInk
             (editor.layoutManager as? InkLayoutManager)?.inkBuildup = prefs.inkBuildup
             (editor.layoutManager as? InkLayoutManager)?.paperRollEnabled = prefs.paperMotion == .roll
@@ -351,10 +465,31 @@ struct PaperEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard !updating, let editor else { return }
-            parent.onChange(editor.string)
+            knownFormatting = editor.formattingRuns
+            parent.onChange(editor.string, knownFormatting)
+            if editor.undoManager?.isUndoing == true || editor.undoManager?.isRedoing == true {
+                // Native undo can restore attributes captured with an earlier desk font.
+                appliedPreferences = nil
+                restoreTypingFromText = true
+            }
             (editor.layoutManager as? InkLayoutManager)?.composing = editor.hasMarkedText()
             animateNextFeed = editor.performingNativeEdit && !editor.hasMarkedText()
             scheduleCaretUpdate(followCaret: true)
+        }
+
+        nonisolated func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                                     range editedRange: NSRange, changeInLength delta: Int) {
+            // This storage belongs to the AppKit editor and is edited on the main thread.
+            MainActor.assumeIsolated {
+                guard !updating, editedRange.location != NSNotFound else { return }
+                if let prior = pendingBlockRange {
+                    let start = min(prior.location, editedRange.location)
+                    let end = max(NSMaxRange(prior) + max(0, delta), NSMaxRange(editedRange))
+                    pendingBlockRange = NSRange(location: start, length: end - start)
+                } else {
+                    pendingBlockRange = editedRange
+                }
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -368,6 +503,10 @@ struct PaperEditor: NSViewRepresentable {
             scheduleCaretUpdate()
         }
 
+        func textViewDidChangeTypingAttributes(_ notification: Notification) {
+            if !updating { scheduleCaretUpdate() }
+        }
+
         func scheduleCaretUpdate(followCaret: Bool = false) {
             pendingFollowCaret = pendingFollowCaret || followCaret
             guard !scheduled else { return }
@@ -378,6 +517,14 @@ struct PaperEditor: NSViewRepresentable {
                     let follow = self.pendingFollowCaret
                     self.pendingFollowCaret = false
                     let layoutChanged = self.updatePaperLayout()
+                    if let range = self.pendingBlockRange, let storage = editor.textStorage {
+                        self.pendingBlockRange = nil
+                        self.updating = true
+                        let start = min(range.location, storage.length)
+                        let end = min(NSMaxRange(range), storage.length)
+                        editor.refreshMarkdownBlocks(in: NSRange(location: start, length: end - start))
+                        self.updating = false
+                    }
                     let animate = self.animateNextFeed && !layoutChanged
                     let origin = self.pendingFeedOrigin
                     self.animateNextFeed = false
@@ -387,6 +534,13 @@ struct PaperEditor: NSViewRepresentable {
                 // While composing, leave the container and scrolling to AppKit.
                 // The pending follow is consumed after commit/unmark.
                 self.publishCaret()
+                if let editor = self.editor, let onEmphasisChange = self.parent.onEmphasisChange {
+                    let emphasis = editor.activeEmphasis
+                    if emphasis != self.lastEmphasis {
+                        self.lastEmphasis = emphasis
+                        onEmphasisChange(emphasis)
+                    }
+                }
                 self.scheduled = false
             }
         }
@@ -395,7 +549,7 @@ struct PaperEditor: NSViewRepresentable {
         /// Bottom's leading inset anchors its first line. Its symmetric trailing
         /// padding is excluded from reading scroll by the native clip constraint.
         private func updatePaperLayout() -> Bool {
-            guard let editor, let clip = scroll?.contentView,
+            guard let editor, let container = editor.textContainer, let clip = scroll?.contentView,
                   clip.bounds.width > 0, clip.bounds.height > 0 else { return false }
             let prefs = parent.preferences
             let previous = appliedPreferences
@@ -423,7 +577,12 @@ struct PaperEditor: NSViewRepresentable {
                                                lineHeight: lineHeight, position: prefs.effectivePaperStartPosition)
             )
             if editor.textContainerInset != inset { editor.textContainerInset = inset }
-            if resized || layoutPreferenceChanged {
+            // An existing TextKit container can still carry its previous line
+            // width after the viewport or the paper margins have changed.
+            let writingWidth = max(1, clip.bounds.width - 2 * inset.width)
+            let needsReflow = container.containerSize.width != writingWidth
+            if needsReflow { container.containerSize.width = writingWidth }
+            if resized || layoutPreferenceChanged || needsReflow {
                 fitDocumentToWritingBand()
             }
             if resized && !layoutPreferenceChanged && lastCaret?.visible == false {
@@ -433,7 +592,7 @@ struct PaperEditor: NSViewRepresentable {
                 scroll?.reflectScrolledClipView(clip)
             }
             // A resize must not jump away from text the user has scrolled to read.
-            return layoutPreferenceChanged || (resized && lastCaret?.visible != false)
+            return layoutPreferenceChanged || ((resized || needsReflow) && lastCaret?.visible != false)
         }
 
         private func fitDocumentToWritingBand() {
@@ -442,11 +601,8 @@ struct PaperEditor: NSViewRepresentable {
             layout.ensureLayout(for: container)
             var minimumHeight = clip.bounds.height
             if parent.preferences.effectivePaperStartPosition == .top {
-                // NSTextView normally leaves only its symmetric 68-point inset
-                // below the text. Top's writing band needs 108 points, otherwise
-                // NSClipView clamps the final lines below the mechanism. Grow
-                // only the native document extent, including an empty last line;
-                // recomputing after deletion lets it shrink to the viewport again.
+                // Include an empty last line and enough trailing space to feed
+                // it to the writing line. Recompute after deletion as well.
                 var contentBottom = layout.usedRect(for: container).maxY
                 if layout.extraLineFragmentTextContainer === container {
                     contentBottom = max(contentBottom, layout.extraLineFragmentRect.maxY)
@@ -474,7 +630,7 @@ struct PaperEditor: NSViewRepresentable {
             clip.maximumWritingOffset = max(0, editor.textContainerOrigin.y + rect.maxY - PaperFeedLayout.caretLimit(
                 viewportHeight: clip.bounds.height, position: parent.preferences.effectivePaperStartPosition))
             let bounded = clip.constrainBoundsRect(clip.bounds)
-            if abs(bounded.minY - clip.bounds.minY) > 0.5 {
+            if bounded.minX != clip.bounds.minX || abs(bounded.minY - clip.bounds.minY) > 0.5 {
                 clip.scroll(to: bounded.origin)
                 scroll?.reflectScrolledClipView(clip)
             }
@@ -574,6 +730,22 @@ struct PaperEditor: NSViewRepresentable {
             if progress >= 1 { stopPaperFeed() }
         }
 
+        // The rail spans the whole page. When revising or scrolling away from
+        // the insertion point, clear the full width of the remaining writing.
+        private func followingTextBottom(in clip: NSClipView, caretBottom: CGFloat) -> CGFloat? {
+            guard parent.preferences.effectivePaperStartPosition == .top, let editor,
+                  let storage = editor.textStorage,
+                  editor.selectedRange().location < storage.length || caretBottom > clip.bounds.height,
+                  let layout = editor.layoutManager, let container = editor.textContainer else { return nil }
+            let used = layout.usedRect(for: container)
+            let bottom = editor.textContainerOrigin.y + used.maxY - clip.bounds.minY
+            if bottom >= clip.bounds.height { return clip.bounds.height }
+            if parent.preferences.paperMotion == .roll {
+                return PaperRollProjection(width: clip.bounds.width, viewportHeight: clip.bounds.height).projectY(bottom)
+            }
+            return bottom
+        }
+
         private func publishCaret() {
             guard let clip = scroll?.contentView, let rect = caretRectInClip(projected: true) else { return }
             let bottom = clip.isFlipped ? rect.maxY - clip.bounds.minY : clip.bounds.maxY - rect.minY
@@ -581,6 +753,7 @@ struct PaperEditor: NSViewRepresentable {
                 x: rect.minX - clip.bounds.minX,
                 top: clip.isFlipped ? rect.minY - clip.bounds.minY : clip.bounds.maxY - rect.maxY,
                 bottom: bottom,
+                followingTextBottom: followingTextBottom(in: clip, caretBottom: bottom),
                 scrollOffset: max(0, clip.bounds.minY),
                 visible: bottom >= 0 && bottom <= clip.bounds.height + 4,
                 startPosition: parent.preferences.effectivePaperStartPosition

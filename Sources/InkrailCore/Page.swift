@@ -1,27 +1,141 @@
 import Foundation
 
+public struct TextEmphasis: OptionSet, Codable, Sendable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    public static let bold = Self(rawValue: 1 << 0)
+    public static let italic = Self(rawValue: 1 << 1)
+    public static let underline = Self(rawValue: 1 << 2)
+    public static let strikethrough = Self(rawValue: 1 << 3)
+    public static let code = Self(rawValue: 1 << 4)
+}
+
+/// A span in the letter's UTF-16 text, matching NSTextStorage coordinates.
+public struct TextFormatRun: Codable, Equatable, Sendable {
+    public let location: Int
+    public let length: Int
+    public let emphasis: TextEmphasis
+
+    public init(location: Int, length: Int, emphasis: TextEmphasis) {
+        self.location = location
+        self.length = length
+        self.emphasis = emphasis
+    }
+}
+
 public struct Page: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let createdAt: Date
     public var modifiedAt: Date
-    public var text: String
+    public private(set) var privateTitle: String?
+    public var text: String {
+        didSet { storedFormatting = nil }
+    }
+    private var storedFormatting: [TextFormatRun]?
+    public var formatting: [TextFormatRun] {
+        get { storedFormatting ?? [] }
+        set {
+            let runs = Self.validated(newValue, for: text)
+            storedFormatting = runs.isEmpty ? nil : runs
+        }
+    }
 
-    public init(id: UUID = UUID(), createdAt: Date = Date(), modifiedAt: Date? = nil, text: String = "") {
+    public init(id: UUID = UUID(), createdAt: Date = Date(), modifiedAt: Date? = nil,
+                text: String = "", formatting: [TextFormatRun] = []) {
         self.id = id
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt ?? createdAt
         self.text = text
+        self.formatting = formatting
     }
 
-    public var title: String {
+    private enum CodingKeys: String, CodingKey {
+        case id, createdAt, modifiedAt, text, privateTitle
+        case storedFormatting = "formatting"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        // Letters written before emphasis was supported have no formatting key.
+        // Unreadable styling should never cost the writer their text.
+        let formatting = (try? values.decode([TextFormatRun].self, forKey: .storedFormatting)) ?? []
+        self.init(id: try values.decode(UUID.self, forKey: .id),
+                  createdAt: try values.decode(Date.self, forKey: .createdAt),
+                  modifiedAt: try values.decode(Date.self, forKey: .modifiedAt),
+                  text: try values.decode(String.self, forKey: .text),
+                  formatting: formatting)
+        if let title = try? values.decode(String.self, forKey: .privateTitle) {
+            setPrivateTitle(title)
+        }
+    }
+
+    private static func validated(_ runs: [TextFormatRun], for text: String) -> [TextFormatRun] {
+        guard !runs.isEmpty else { return [] }
+        let source = text as NSString
+        let supported: TextEmphasis = [.bold, .italic, .underline, .strikethrough, .code]
+        var result: [TextFormatRun] = []
+        var end = 0
+        for run in runs.sorted(by: { $0.location < $1.location }) {
+            let emphasis = run.emphasis.intersection(supported)
+            guard !emphasis.isEmpty, run.location >= end, run.length > 0,
+                  run.location < source.length, run.length <= source.length - run.location else { continue }
+            let nextEnd = run.location + run.length
+            guard !UTF16.isTrailSurrogate(source.character(at: run.location)),
+                  nextEnd == source.length || !UTF16.isTrailSurrogate(source.character(at: nextEnd)) else { continue }
+            result.append(TextFormatRun(location: run.location, length: run.length, emphasis: emphasis))
+            end = nextEnd
+        }
+        return result
+    }
+
+    public mutating func setPrivateTitle(_ title: String) {
+        let singleLine = title.split(whereSeparator: \.isNewline).joined(separator: " ")
+        let trimmed = singleLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        privateTitle = trimmed.isEmpty ? nil : trimmed
+    }
+
+    public var title: String { privateTitle ?? openingLineTitle }
+
+    private var openingLineTitle: String {
         let first = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first(where: { !$0.isEmpty }) ?? "Untitled letter"
         return String(first.prefix(64))
     }
 
+    // A period needs a word boundary so decimals and domains stay together.
+    // Other sentence marks, such as 。 and ！, can run into the next word.
+    private static let sentenceEnding = try! NSRegularExpression(pattern: #"""
+        (?:
+            (?<!\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|\p{L}\.\p{L}))
+            \. (?=[\s\p{Pe}\p{Pf}"']|$)
+          | [\p{Sentence_Terminal}&&[^.]]
+        )
+        [\p{Sentence_Terminal}]* [\p{Pe}\p{Pf}"']*
+        """#, options: [.allowCommentsAndWhitespace, .caseInsensitive])
+
     public var preview: String {
-        String(text.replacingOccurrences(of: "\n", with: " ").prefix(140))
+        let body = text as NSString
+        var excerptRange = NSRange(location: 0, length: body.length)
+        var sentenceCount = 0
+        Self.sentenceEnding.enumerateMatches(in: text, range: excerptRange) { match, _, stop in
+            guard let match else { return }
+            sentenceCount += 1
+            if sentenceCount == 2 {
+                excerptRange.length = NSMaxRange(match.range)
+                stop.pointee = true
+            }
+        }
+
+        var excerpt = body.substring(with: excerptRange).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !excerpt.isEmpty else { return "" }
+        if sentenceCount == 0 {
+            // Keep a long, unpunctuated draft compact in the letter box.
+            excerpt = String(excerpt.prefix(140)).trimmingCharacters(in: .whitespaces)
+        }
+        while excerpt.last == "." { excerpt.removeLast() }
+        return excerpt + "..."
     }
 
     public var wordCount: Int { text.split(whereSeparator: \.isWhitespace).count }
@@ -29,7 +143,7 @@ public struct Page: Identifiable, Codable, Equatable, Sendable {
 
     public var exportName: String {
         let invalid = CharacterSet(charactersIn: "/\\:?%*|\"<>\n\r\t")
-        let cleaned = title.components(separatedBy: invalid).joined(separator: "-")
+        let cleaned = openingLineTitle.components(separatedBy: invalid).joined(separator: "-")
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: ".")))
         return cleaned.isEmpty ? "Untitled letter" : String(cleaned.prefix(64))
     }
