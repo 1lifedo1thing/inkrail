@@ -33,6 +33,8 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
     "$INKRAIL_ROOT/Sources/Inkrail/Views/Palette.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Views/WritingFont+AppKit.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Editor/InkLayoutManager.swift" \
+    "$INKRAIL_ROOT/Sources/Inkrail/Editor/LetterFormatting.swift" \
+    "$INKRAIL_ROOT/Sources/Inkrail/Editor/MarkdownBlocks.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Editor/PaperEditor.swift" \
     "$INKRAIL_ROOT/scripts/fixtures/paper-feed-check.swift" \
     -o "$INKRAIL_CHECK_DIR/paper-feed-check"

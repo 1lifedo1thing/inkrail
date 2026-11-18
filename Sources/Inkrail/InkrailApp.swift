@@ -32,7 +32,7 @@ struct InkrailApp: App {
             }
             CommandGroup(replacing: .newItem) {
                 Button("New Letter") { model.createPage() }.keyboardShortcut("n")
-                Button("Import Text…") { model.importText() }.keyboardShortcut("o")
+                Button("Import Text or Markdown…") { model.importText() }.keyboardShortcut("o")
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") { _ = model.flush() }.keyboardShortcut("s")
@@ -45,6 +45,11 @@ struct InkrailApp: App {
             CommandMenu("Writing") {
                 Button("Open Letter Box") { model.showLibrary = true }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
+                Button("Clear Inline Formatting") {
+                    NSApp.sendAction(#selector(InkTextView.clearLetterFormatting(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("\\")
+                .disabled(model.selectedPage == nil || model.showLibrary || model.showStudio)
                 Divider()
                 Toggle("Focus Mode", isOn: $model.focusMode)
                     .keyboardShortcut("f", modifiers: [.command, .shift])

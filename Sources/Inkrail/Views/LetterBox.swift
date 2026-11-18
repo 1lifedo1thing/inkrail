@@ -15,10 +15,15 @@ struct LetterBox: View {
     @InkrailState private var showDeleted = false
     @InkrailState private var deleted: [Page] = []
     @InkrailState private var pageToDelete: Page?
+    @InkrailState private var pageToRename: Page?
+    @InkrailState private var titleDraft = ""
 
     private var groups: [LetterMonth] {
         let source = showDeleted ? deleted : model.pages
-        let filtered = source.filter { search.isEmpty || $0.text.localizedCaseInsensitiveContains(search) }
+        let filtered = source.filter { page in
+            search.isEmpty || page.privateTitle?.localizedCaseInsensitiveContains(search) == true
+                || page.text.localizedCaseInsensitiveContains(search)
+        }
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: filtered) { page in
             calendar.date(from: calendar.dateComponents([.year, .month], from: page.modifiedAt)) ?? page.modifiedAt
@@ -99,6 +104,31 @@ struct LetterBox: View {
         .onChange(of: model.trashRevision) { _ in
             if showDeleted { deleted = model.deletedPages() }
         }
+        .sheet(item: $pageToRename) { page in
+            let save = {
+                model.rename(page.id, to: titleDraft)
+                pageToRename = nil
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Rename letter").font(.headline)
+                TextField("Private title", text: $titleDraft)
+                    .accessibilityLabel("Private title")
+                    .onSubmit(save)
+                Text("This title appears only in your letter box. Leave it blank to use the first line.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { pageToRename = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Save", action: save)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20)
+            .frame(width: 340)
+        }
         .alert("Move this letter to Recently Deleted?", isPresented: Binding(
             get: { pageToDelete != nil }, set: { if !$0 { pageToDelete = nil } }
         )) {
@@ -111,7 +141,8 @@ struct LetterBox: View {
     }
 
     private func row(_ page: Page) -> some View {
-        HStack(alignment: .top, spacing: 14) {
+        let preview = page.preview
+        return HStack(alignment: .top, spacing: 14) {
             Button {
                 if !showDeleted { model.select(page.id) }
             } label: {
@@ -122,15 +153,18 @@ struct LetterBox: View {
                         Text(page.modifiedAt.formatted(.dateTime.day()))
                             .font(.custom("Courier", size: 11)).foregroundColor(DeskPalette.mutedInk)
                     }
-                    Text(page.preview.isEmpty ? "An unwritten page." : page.preview)
+                    Text(preview.isEmpty ? "An unwritten page." : preview)
                         .font(.custom("Courier", size: 11)).lineSpacing(3)
-                        .foregroundColor(DeskPalette.mutedInk).lineLimit(2)
+                        .foregroundColor(DeskPalette.mutedInk)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(page.title)")
+            .contextMenu { renameAction(for: page) }
+            .accessibilityActions { renameAction(for: page) }
             if showDeleted {
                 Button("Restore") {
                     model.restore(page.id)
@@ -147,5 +181,15 @@ struct LetterBox: View {
         .padding(.horizontal, 12)
         .background(RoundedRectangle(cornerRadius: 3).fill(page.id == model.selectedID && !showDeleted ? Color.black.opacity(0.035) : .clear))
         .overlay(alignment: .bottom) { Rectangle().fill(DeskPalette.ink.opacity(0.10)).frame(height: 0.5) }
+    }
+
+    @ViewBuilder
+    private func renameAction(for page: Page) -> some View {
+        if !showDeleted {
+            Button("Rename…") {
+                titleDraft = page.privateTitle ?? ""
+                pageToRename = page
+            }
+        }
     }
 }

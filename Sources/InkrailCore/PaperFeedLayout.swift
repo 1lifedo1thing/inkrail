@@ -1,18 +1,23 @@
 /// Geometry shared by the native editor and its paper-stage host.
 /// Positions and sizes use points in a top-origin coordinate system.
 public enum PaperFeedLayout {
-    /// Start position and paper treatment are independent. Bottom ends the
-    /// native viewport just below its lower writing line; Top leaves room
-    /// for the line to advance down the sheet before automatic feeding.
+    // Space for the mechanism and footer beneath the native scroll view.
+    // Top gives the reader a little more room below the writing line.
+    private static func spaceBelowEditor(_ position: PaperStartPosition) -> Double {
+        position == .bottom ? 172 : 148
+    }
+
     public static func editorHeight(paperHeight: Double, position: PaperStartPosition,
                                     motion _: PaperMotion = .sheet) -> Double {
-        return max(1, finite(paperHeight) - (position == .bottom ? 172 : 68))
+        return max(1, finite(paperHeight) - spaceBelowEditor(position))
     }
 
     /// Maximum visible caret bottom, measured from the viewport's top edge.
     public static func caretLimit(viewportHeight: Double, position: PaperStartPosition) -> Double {
         let height = finite(viewportHeight)
-        return position == .bottom ? max(1, height - 4) : max(100, height - 108)
+        // Both modes feed at the same physical line, 176 pt above the paper's foot.
+        let trailingSpace = 176 - spaceBelowEditor(position)
+        return max(position == .bottom ? 1 : 100, height - trailingSpace)
     }
 
     /// Leading whitespace places an empty bottom-starting letter at the feed

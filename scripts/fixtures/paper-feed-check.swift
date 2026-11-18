@@ -5,7 +5,7 @@ import Darwin
 
 // The editor needs these two application-level declarations, but it does not
 // need AppModel, saved preferences, audio resources or the real app entry point.
-enum StrokeKind { case key, space, carriage, erase }
+enum StrokeKind { case key, space, carriage, erase, navigation }
 extension Notification.Name {
     static let inkrailFocusEditor = Notification.Name("Inkrail.FocusEditor")
 }
@@ -28,12 +28,15 @@ private final class PaperFeedProbe {
     private let window: ProbeWindow
     private var pageID = UUID()
     private var text = ""
+    private var formatting: [TextFormatRun] = []
+    private var activeEmphasis: TextEmphasis = []
     private var preferences = WritingPreferences()
     private var latestCaret: CaretPosition?
     private var changeCount = 0
     private var checkCount = 0
     private var failures: [String] = []
     private var recordedOffsets: [CGFloat] = []
+    private var strokes: [StrokeKind] = []
     private lazy var host = NSHostingView(rootView: representation())
     private var editor: InkTextView!
     private var scroll: NSScrollView!
@@ -53,19 +56,20 @@ private final class PaperFeedProbe {
     }
 
     private func representation() -> PaperEditor {
-        PaperEditor(pageID: pageID, text: text, preferences: preferences,
-                    onChange: { [weak self] value in
+        PaperEditor(pageID: pageID, text: text, formatting: formatting, preferences: preferences,
+                    onChange: { [weak self] text, formatting in
                         guard let self else { return }
-                        self.text = value
+                        self.text = text
+                        self.formatting = formatting
                         self.changeCount += 1
-                        // Emulate the application's model-to-representable update
-                        // without constructing its filesystem-backed AppModel.
                         DispatchQueue.main.async { [weak self] in self?.refresh() }
-                    }, onCaret: { [weak self] value in
+                    },
+                    onCaret: { [weak self] value in
                         self?.latestCaret = value
                         self?.recordedOffsets.append(value.scrollOffset)
                     },
-                    onStroke: { _ in })
+                    onStroke: { [weak self] kind in self?.strokes.append(kind) },
+                    onEmphasisChange: { [weak self] in self?.activeEmphasis = $0 })
     }
 
     private func refresh() { host.rootView = representation() }
@@ -223,6 +227,390 @@ private final class PaperFeedProbe {
     private func checkScrollCallback(_ label: String) {
         check(latestCaret != nil && abs((latestCaret?.scrollOffset ?? -1) - max(0, scroll.contentView.bounds.minY)) <= 1,
               label, detail: "callback \(latestCaret?.scrollOffset ?? -1), native \(scroll.contentView.bounds.minY)")
+    }
+
+    private func checkArrowNavigation() throws {
+        pageID = UUID()
+        text = "abc\ndef\nghi"
+        formatting = []
+        refresh()
+        settle()
+        window.makeFirstResponder(editor)
+        strokes.removeAll()
+        let start = NSRange(location: 5, length: 0)
+        editor.setSelectedRange(start)
+        check(strokes.isEmpty, "placing the caret programmatically makes no navigation stroke")
+
+        func press(_ key: NSEvent.SpecialKey, code: UInt16, flags: NSEvent.ModifierFlags = [], repeatKey: Bool = false) throws {
+            let character = String(key.unicodeScalar)
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: flags.union([.numericPad, .function]), timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: character,
+                charactersIgnoringModifiers: character, isARepeat: repeatKey, keyCode: code) else {
+                throw ProbeError(description: "Could not create arrow key event")
+            }
+            editor.keyDown(with: event)
+        }
+
+        try press(.leftArrow, code: 123)
+        check(editor.selectedRange().location == 4, "Left moves the caret back a character")
+        try press(.rightArrow, code: 124, repeatKey: true)
+        check(editor.selectedRange() == start, "a repeated Right moves the caret forward")
+        try press(.upArrow, code: 126)
+        check(editor.selectedRange().location < 4, "Up moves the caret to the previous line")
+        try press(.downArrow, code: 125)
+        check(editor.selectedRange() == start, "Down moves the caret back to the same column")
+        try press(.rightArrow, code: 124, flags: .shift)
+        check(editor.selectedRange() == NSRange(location: 5, length: 1), "Shift-Right extends the selection")
+        check(strokes == Array(repeating: .navigation, count: 5), "each arrow generates exactly one navigation stroke",
+              detail: "\(strokes)")
+        check(editor.string == "abc\ndef\nghi", "arrow events preserve the letter")
+    }
+
+    private func checkFormatting() throws {
+        let letter = "🪶 Ink and paper"
+        let words = letter as NSString
+        let boldRange = words.range(of: "Ink and")
+        let italicRange = words.range(of: "and paper")
+        let overlap = NSIntersectionRange(boldRange, italicRange)
+        let bold = TextFormatRun(location: boldRange.location, length: boldRange.length, emphasis: .bold)
+        let combined = [
+            TextFormatRun(location: boldRange.location, length: overlap.location - boldRange.location, emphasis: .bold),
+            TextFormatRun(location: overlap.location, length: overlap.length, emphasis: [.bold, .italic]),
+            TextFormatRun(location: NSMaxRange(overlap), length: NSMaxRange(italicRange) - NSMaxRange(overlap), emphasis: .italic)
+        ]
+        pageID = UUID()
+        text = letter
+        formatting = []
+        preferences.writingFont = .courier
+        refresh()
+        settle()
+        guard let storage = editor.textStorage else { throw ProbeError(description: "Missing editor storage") }
+        editor.setSelectedRange(boldRange)
+        edit { editor.toggleEmphasis(.bold) }
+        check(formatting == [bold] && text == letter && editor.selectedRange() == boldRange,
+              "bold applies to the selected UTF-16 range and preserves the selection")
+        editor.setSelectedRange(italicRange)
+        edit { editor.toggleEmphasis(.italic) }
+        check(formatting == combined && activeEmphasis == .italic,
+              "overlapping bold and italic keep both styles and report the shared selection style")
+
+        if window.probeUndoManager.canUndo { window.probeUndoManager.undo(); settle() }
+        check(formatting == [bold] && editor.string == letter,
+              "Undo restores the prior emphasis without changing the words")
+        if window.probeUndoManager.canRedo { window.probeUndoManager.redo(); settle() }
+        check(formatting == combined && editor.string == letter, "Redo restores overlapping emphasis")
+
+        preferences.writingFont = .georgia
+        preferences.fontSize = 23
+        refresh()
+        settle()
+        func checkLetterAppearance(_ label: String) {
+            let chosen = preferences.writingFont.nsFont(size: preferences.fontSize)
+            let attributes = storage.attributes(at: overlap.location, effectiveRange: nil)
+            let displayFont = attributes[.font] as? NSFont
+            let plainFont = storage.attribute(.font, at: boldRange.location - 1, effectiveRange: nil) as? NSFont
+            let traits = displayFont?.fontDescriptor.symbolicTraits ?? []
+            let boldInk = traits.contains(.bold) || ((attributes[.strokeWidth] as? NSNumber)?.doubleValue ?? 0) < 0
+            let slanted = traits.contains(.italic) || ((attributes[.obliqueness] as? NSNumber)?.doubleValue ?? 0) != 0
+            check(formatting == combined && boldInk && slanted && plainFont?.fontName == chosen.fontName
+                  && displayFont?.familyName == chosen.familyName
+                  && displayFont?.pointSize == chosen.pointSize, label)
+        }
+        checkLetterAppearance("changing writing preferences renders the emphasis in the chosen font family and size")
+        if window.probeUndoManager.canUndo { window.probeUndoManager.undo(); settle() }
+        let undoFont = storage.attribute(.font, at: overlap.location, effectiveRange: nil) as? NSFont
+        let chosen = preferences.writingFont.nsFont(size: preferences.fontSize)
+        check(formatting == [bold] && undoFont?.familyName == chosen.familyName && undoFont?.pointSize == chosen.pointSize,
+              "undoing an earlier style change keeps the current typeface and size")
+        if window.probeUndoManager.canRedo { window.probeUndoManager.redo(); settle() }
+        checkLetterAppearance("redoing emphasis after a font change uses the current typeface and size")
+        preferences.writingFont = .monaco
+        refresh()
+        settle()
+        checkLetterAppearance("a face without bold or italic variants retains its typeface and displays both styles")
+        let savedPage = pageID
+        pageID = UUID()
+        text = "New "
+        formatting = []
+        refresh()
+        settle()
+        check(activeEmphasis.isEmpty, "opening an unformatted letter clears active styles")
+        edit { editor.toggleEmphasis(.underline) }
+        check(activeEmphasis == .underline && formatting.isEmpty,
+              "underline at the caret chooses the style for upcoming text")
+        insert("in")
+        insert("k")
+        edit { editor.toggleEmphasis(.underline) }
+        insert(".")
+        let underline = TextFormatRun(location: 4, length: 3, emphasis: .underline)
+        check(text == "New ink." && formatting == [underline],
+              "underline applies across consecutive edits and stops when toggled off")
+        let underlineValue = storage.attribute(.underlineStyle, at: 4, effectiveRange: nil) as? NSNumber
+        check(underlineValue?.intValue == NSUnderlineStyle.single.rawValue, "typed underline reaches the rendered text")
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        insert("🪶")
+        check(formatting == [TextFormatRun(location: 6, length: 3, emphasis: .underline)],
+              "editing before formatted text shifts its UTF-16 range")
+
+        pageID = savedPage
+        text = letter
+        formatting = combined
+        refresh()
+        settle()
+        checkLetterAppearance("reopening a letter restores its formatting in the active typeface")
+        editor.setSelectedRange(italicRange)
+        edit { editor.toggleEmphasis(.italic) }
+        check(formatting == [bold], "toggling off italic preserves overlapping bold")
+    }
+
+    private func checkMarkdownTyping() throws {
+        pageID = UUID()
+        text = ""
+        formatting = []
+        refresh()
+        settle()
+        let source = "# Letter\n🪶 **bold** then _italic_, ~~strike~~ and `code`.\n```\n**literal**\n```\n    *literal*\n"
+        edit {
+            for character in source {
+                editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
+        }
+        let expected = Page(markdown: source)
+        check(text == expected.text && formatting == expected.formatting,
+              "typed shortcuts match Markdown import, including literal fenced code and plain text after a span")
+        let headingFont = editor.textStorage?.attribute(.font, at: 2, effectiveRange: nil) as? NSFont
+        let bodyFont = preferences.writingFont.nsFont(size: preferences.fontSize)
+        check(headingFont?.familyName == bodyFont.familyName && (headingFont?.pointSize ?? 0) > bodyFont.pointSize,
+              "typing a heading styles it in the letter's typeface")
+        editor.setSelectedRange(NSRange(location: 0, length: (text as NSString).length))
+        guard let selection = editor.encodedSelection(), let copy = editor.decodeSelection(selection) else {
+            throw ProbeError(description: "The formatted selection could not round-trip.")
+        }
+        let strike = (copy.string as NSString).range(of: "strike")
+        check(copy.string == text && strike.location != NSNotFound
+              && (copy.attribute(.strikethroughStyle, at: strike.location, effectiveRange: nil) as? NSNumber)?.intValue == 1,
+              "copying and pasting a letter selection preserves Markdown emphasis")
+        editor.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+        insert("**end*")
+        insert("*")
+        check(text == expected.text + "end" && formatting.last?.emphasis == .bold,
+              "the closing keystroke converts the delimiters to bold")
+        window.probeUndoManager.undo()
+        settle()
+        check(text == expected.text + "**end*", "one Undo restores the text before the closing keystroke")
+        window.probeUndoManager.redo()
+        settle()
+        check(text == expected.text + "end" && formatting.last?.emphasis == .bold,
+              "Redo restores the converted Markdown")
+    }
+
+    private func checkHeadingMarkers() throws {
+        guard let layout = editor.layoutManager, let container = editor.textContainer else {
+            throw ProbeError(description: "Heading marker checks require the native text layout.")
+        }
+        func glyphX(at character: Int) -> CGFloat {
+            let glyph = layout.glyphIndexForCharacter(at: character)
+            return layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minX
+                + layout.location(forGlyphAt: glyph).x
+        }
+        func drawsInk(_ characters: NSRange) throws -> Bool {
+            let width = 256, height = 160
+            guard let canvas = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                         bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                         bitmapInfo: CGImageAlphaInfo.none.rawValue), let data = canvas.data else {
+                throw ProbeError(description: "Could not render the heading glyphs.")
+            }
+            canvas.setFillColor(gray: 1, alpha: 1)
+            canvas.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            canvas.translateBy(x: 8, y: 96)
+            canvas.scaleBy(x: 1, y: -1)
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: canvas, flipped: true)
+            let glyphs = layout.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+            layout.drawGlyphs(forGlyphRange: glyphs, at: .zero)
+            canvas.flush()
+            return UnsafeRawBufferPointer(start: data, count: width * height).contains { $0 < 240 }
+        }
+
+        let bodySize = CGFloat(preferences.fontSize)
+        func fontSize(at character: Int) -> CGFloat? {
+            (editor.textStorage?.attribute(.font, at: character, effectiveRange: nil) as? NSFont)?.pointSize
+        }
+        pageID = UUID()
+        text = ""
+        formatting = []
+        preferences.paperMotion = .sheet
+        refresh()
+        settle()
+        insert("#")
+        insert(" ")
+        let pendingHash = try drawsInk(NSRange(location: 0, length: 1))
+        check(pendingHash && fontSize(at: 0) == bodySize
+              && (editor.typingAttributes[.font] as? NSFont)?.pointSize == bodySize,
+              "a hash and space stay visible in the selected body style")
+        insert("H")
+        let hiddenMarker = try !drawsInk(NSRange(location: 0, length: 2))
+        let visibleH = try drawsInk(NSRange(location: 2, length: 1))
+        check(hiddenMarker && visibleH && (fontSize(at: 2) ?? 0) > bodySize,
+              "the first heading letter immediately renders the heading")
+        edit { editor.deleteBackward(nil) }
+        let revealedHash = try drawsInk(NSRange(location: 0, length: 1))
+        check(text == "# " && revealedHash && fontSize(at: 0) == bodySize
+              && (editor.typingAttributes[.font] as? NSFont)?.pointSize == bodySize,
+              "deleting the last heading letter restores the visible marker and body style")
+
+        pageID = UUID()
+        text = "# \t\nBody"
+        refresh()
+        settle()
+        let whitespaceOnlyHash = try drawsInk(NSRange(location: 0, length: 1))
+        check(whitespaceOnlyHash && fontSize(at: 0) == bodySize,
+              "reopening a marker followed by whitespace and a newline keeps it literal")
+
+        pageID = UUID()
+        text = ""
+        refresh()
+        settle()
+        insert(">")
+        insert(" ")
+        let pendingQuote = editor.textStorage?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        check(pendingQuote?.headIndent == 0, "a quote marker waits for content before indenting")
+        insert("Q")
+        let quote = editor.textStorage?.attribute(.paragraphStyle, at: 2, effectiveRange: nil) as? NSParagraphStyle
+        check((quote?.headIndent ?? 0) > 0, "the first quote letter indents the paragraph")
+
+        let sample = "## HI\nBody"
+        pageID = UUID()
+        text = ""
+        refresh()
+        settle()
+        insert("#")
+        insert("#")
+        layout.ensureLayout(for: container)
+        let literalHashes = try drawsInk(NSRange(location: 0, length: 2))
+        check(literalHashes, "incomplete heading syntax still shows the literal hashes")
+        for character in " HI" { insert(String(character)) }
+        edit { editor.insertNewline(nil) }
+        insert("Body")
+        layout.ensureLayout(for: container)
+        let prefixInk = try drawsInk(NSRange(location: 0, length: 3))
+        let headingInk = try drawsInk(NSRange(location: 3, length: 2))
+        check(!prefixInk && headingInk, "typed heading draws HI and suppresses the two hashes and separator")
+        check(abs(glyphX(at: 3) - glyphX(at: 6)) <= 0.5,
+              "heading text aligns with the body at the writing margin")
+        let bodyFont = editor.textStorage?.attribute(.font, at: 6, effectiveRange: nil) as? NSFont
+        let headingFont = editor.textStorage?.attribute(.font, at: 3, effectiveRange: nil) as? NSFont
+        check(bodyFont?.pointSize == bodySize && (headingFont?.pointSize ?? 0) > bodySize,
+              "Return after the heading resumes the selected body size")
+        check(text == sample && Page(text: text, formatting: formatting).markdownText == sample,
+              "the heading's Markdown source survives typing and export")
+        editor.setSelectedRange(NSRange(location: 3, length: 0))
+        edit { editor.deleteBackward(nil) }
+        let editedHashes = try drawsInk(NSRange(location: 0, length: 2))
+        check(editor.string == "##HI\nBody" && editedHashes,
+              "deleting the heading separator restores literal hashes")
+        window.probeUndoManager.undo()
+        settle()
+        let restoredPrefix = try drawsInk(NSRange(location: 0, length: 3))
+        check(text == sample && !restoredPrefix, "Undo restores the formatted heading and hides its marker")
+        pageID = UUID()
+        preferences.paperMotion = .roll
+        preferences.paperStartPosition = .bottom
+        refresh()
+        settle()
+        layout.ensureLayout(for: container)
+        check(editor.string == sample && abs(glyphX(at: 3) - glyphX(at: 6)) <= 0.5,
+              "opening the heading in Bottom Paper Roll keeps its text at the writing margin")
+    }
+
+    private func checkUnbrokenTyping() throws {
+        guard let layout = editor.layoutManager, let container = editor.textContainer else {
+            throw ProbeError(description: "Missing native text layout for continuous typing checks.")
+        }
+        let beginning = "First line.\n"
+        let word = String(repeating: "w", count: 128)
+        for motion in [PaperMotion.sheet, .roll] {
+            strokes.removeAll()
+            preferences.paperMotion = motion
+            preferences.paperStartPosition = motion == .sheet ? .top : .bottom
+            preferences.wideMargins = motion == .roll
+            pageID = UUID()
+            text = beginning
+            refresh()
+            resize(width: 720, height: 430)
+            let previousWidth = editor.frame.width
+            let previousContainerSize = container.containerSize
+            let paperWidth: CGFloat = 420
+            resize(width: paperWidth, height: 430)
+            let clip = scroll.contentView
+            let firstGlyph = NSRange(location: 0, length: 1)
+            let initialLeft = editor.textContainerOrigin.x
+                + layout.boundingRect(forGlyphRange: firstGlyph, in: container).minX
+            // Exercise a document that still has its earlier width when the
+            // next edit arrives in the narrower viewport.
+            if motion == .roll {
+                editor.setFrameSize(NSSize(width: previousWidth, height: editor.frame.height))
+                container.containerSize = previousContainerSize
+            }
+            let label = "\(motion.rawValue) continuous typing"
+            check(strokes.isEmpty, "\(label) loading and resizing the paper emit no strokes")
+            check(abs(editor.frame.width - paperWidth) <= 1,
+                  "\(label) starts with the document sized to the current viewport",
+                  detail: "document width \(editor.frame.width), paper width \(paperWidth)")
+            var maxHorizontalOffset: CGFloat = 0
+            var furthestGlyphEdge: CGFloat = 0
+            edit {
+                for character in word {
+                    editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+                    settle(0.01)
+                    maxHorizontalOffset = max(maxHorizontalOffset, abs(clip.bounds.minX))
+                    layout.ensureLayout(for: container)
+                    if layout.numberOfGlyphs > 0 {
+                        let glyph = NSRange(location: layout.numberOfGlyphs - 1, length: 1)
+                        let bounds = layout.boundingRect(forGlyphRange: glyph, in: container)
+                        furthestGlyphEdge = max(furthestGlyphEdge, editor.textContainerOrigin.x + bounds.maxX)
+                    }
+                }
+            }
+            let expected = beginning + word
+            let expectedCaret = NSRange(location: expected.utf16.count, length: 0)
+            check(text == expected && editor.string == expected && editor.selectedRange() == expectedCaret,
+                  "\(label) keeps the original text and caret at its end")
+            guard layout.numberOfGlyphs > beginning.utf16.count else {
+                throw ProbeError(description: "\(label) did not lay out the typed word.")
+            }
+            let firstWordGlyph = layout.glyphIndexForCharacter(at: beginning.utf16.count)
+            let glyphs = NSRange(location: firstWordGlyph, length: layout.numberOfGlyphs - firstWordGlyph)
+            var wordLines = 0
+            layout.enumerateLineFragments(forGlyphRange: glyphs) { _, _, _, _, _ in wordLines += 1 }
+            let returns = strokes.filter { $0 == .carriage }.count
+            check(wordLines > 1 && returns == wordLines - 1,
+                  "\(label) emits one carriage sound for each automatic line wrap",
+                  detail: "\(wordLines) visual lines, \(returns) carriage strokes")
+            let firstLine = layout.lineFragmentRect(forGlyphAt: firstWordGlyph, effectiveRange: nil)
+            let lastLine = layout.lineFragmentRect(forGlyphAt: layout.numberOfGlyphs - 1, effectiveRange: nil)
+            let rightMargin = paperWidth - editor.textContainerInset.width
+            check(lastLine.minY > firstLine.minY && furthestGlyphEdge <= rightMargin + 1,
+                  "\(label) wraps a word without spaces inside the paper margins",
+                  detail: "first row \(firstLine.minY), last row \(lastLine.minY), rightmost glyph \(furthestGlyphEdge), margin \(rightMargin)")
+            check(maxHorizontalOffset <= 1, "\(label) keeps the viewport horizontally stationary",
+                  detail: "largest horizontal offset \(maxHorizontalOffset)")
+            let left = editor.textContainerOrigin.x - clip.bounds.minX
+                + layout.boundingRect(forGlyphRange: firstGlyph, in: container).minX
+            check(abs(left - initialLeft) <= 1, "\(label) keeps the previous paragraph at the left margin")
+
+            strokes.removeAll()
+            resize(width: 720, height: 430)
+            check(strokes.isEmpty, "\(label) reflowing existing words emits no strokes")
+            edit { editor.insertNewline(nil) }
+            insert("x")
+            insert(" ")
+            check(strokes == [.carriage, .key, .space],
+                  "\(label) explicit Return, a letter, and a space each emit only their own stroke",
+                  detail: "\(strokes)")
+        }
     }
 
     private func checkTopContinuousFeed() {
@@ -938,9 +1326,14 @@ private final class PaperFeedProbe {
         checkRollMotion()
         checkFocusWidthTransitions()
         checkEndOfWritingScroll()
+        try checkUnbrokenTyping()
+        try checkFormatting()
+        try checkMarkdownTyping()
+        try checkHeadingMarkers()
+        try checkArrowNavigation()
 
         print("\(checkCount - failures.count)/\(checkCount) standalone checks passed.")
-        print("Not exercised: real OS input methods, keyboard events, menu/clipboard actions, saved files, audio or visual appearance.")
+        print("Not exercised: real OS input methods, hardware keyboard events, menu/clipboard actions, saved files, audio or visual appearance.")
         return failures.isEmpty
     }
 }

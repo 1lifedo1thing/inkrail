@@ -12,6 +12,7 @@ enum TextExport {
         panel.title = "Keep a copy of your letter"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try page.text.write(to: url, atomically: true, encoding: .utf8)
+        let content = markdown ? page.markdownText : page.text
+        try content.write(to: url, atomically: true, encoding: .utf8)
     }
 }

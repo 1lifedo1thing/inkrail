@@ -108,11 +108,27 @@ final class AppModel: ObservableObject {
     var currentText: String { selectedPage?.text ?? "" }
     var isDirty: Bool { !dirty.isEmpty }
 
-    func edit(_ text: String) {
-        guard let index = pages.firstIndex(where: { $0.id == selectedID }), pages[index].text != text else { return }
-        pages[index].text = text
-        pages[index].modifiedAt = Date()
-        dirty.insert(pages[index].id)
+    func edit(_ text: String, formatting: [TextFormatRun] = []) {
+        guard let index = pages.firstIndex(where: { $0.id == selectedID }) else { return }
+        var page = pages[index]
+        guard !page.text.utf8.elementsEqual(text.utf8) || page.formatting != formatting else { return }
+        page.text = text
+        page.formatting = formatting
+        page.modifiedAt = Date()
+        autosave(page, at: index)
+    }
+
+    func rename(_ id: UUID, to title: String) {
+        guard let index = pages.firstIndex(where: { $0.id == id }) else { return }
+        var page = pages[index]
+        page.setPrivateTitle(title)
+        guard page.privateTitle != pages[index].privateTitle else { return }
+        autosave(page, at: index)
+    }
+
+    private func autosave(_ page: Page, at index: Int) {
+        pages[index] = page
+        dirty.insert(page.id)
         saveState = storageAvailable ? "Saving…" : "Not saved — export your writing"
         saveWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -149,8 +165,11 @@ final class AppModel: ObservableObject {
     }
 
     func createPage(text: String = "") {
+        createPage(Page(text: text))
+    }
+
+    private func createPage(_ page: Page) {
         _ = flush()
-        let page = Page(text: text)
         pages.insert(page, at: 0)
         selectedID = page.id
         rememberSelection()
@@ -286,14 +305,19 @@ final class AppModel: ObservableObject {
     func importText() {
         let panel = NSOpenPanel()
         panel.title = "Bring a letter to your desk"
-        panel.allowedContentTypes = [.plainText, .text]
+        panel.allowedContentTypes = [.plainText, .text, UTType(filenameExtension: "md") ?? .plainText]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { focusEditor(); return }
         do {
-            var encoding = String.Encoding.utf8
-            let text = try String(contentsOf: url, usedEncoding: &encoding)
-            createPage(text: text)
+            try importText(from: url)
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    func importText(from url: URL) throws {
+        var encoding = String.Encoding.utf8
+        let text = try String(contentsOf: url, usedEncoding: &encoding)
+        let isMarkdown = ["md", "markdown", "mdown", "mkd"].contains(url.pathExtension.lowercased())
+        createPage(isMarkdown ? Page(markdown: text) : Page(text: text))
     }
 
     func focusEditor() {

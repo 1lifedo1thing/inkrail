@@ -52,23 +52,27 @@ private enum AppIconCheck {
     }
 
     private static func matchesArtwork(_ actual: NSImage, _ expected: NSImage) -> Bool {
-        guard let actualData = actual.tiffRepresentation, let expectedData = expected.tiffRepresentation,
-              let a = NSBitmapImageRep(data: actualData), let b = NSBitmapImageRep(data: expectedData),
-              a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return false }
-        // AppKit can re-encode the TIFF metadata when setting the application icon.
-        // Compare visible pixels throughout the artwork, not that encoded container.
-        for y in stride(from: 0, to: a.pixelsHigh, by: 16) {
-            for x in stride(from: 0, to: a.pixelsWide, by: 16) {
-                guard let ac = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+        guard actual.size == expected.size,
+              let actualData = actual.tiffRepresentation, let expectedData = expected.tiffRepresentation,
+              let a = NSBitmapImageRep(data: actualData), let b = NSBitmapImageRep(data: expectedData) else { return false }
+        // AppKit can return a 2x raster for the same logical icon on a Retina display.
+        var error = 0.0
+        var samples = 0
+        for y in stride(from: 0, to: b.pixelsHigh, by: 16) {
+            for x in stride(from: 0, to: b.pixelsWide, by: 16) {
+                let ax = x * a.pixelsWide / b.pixelsWide
+                let ay = y * a.pixelsHigh / b.pixelsHigh
+                guard let ac = a.colorAt(x: ax, y: ay)?.usingColorSpace(.sRGB),
                       let bc = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
                 let av = [ac.alphaComponent, ac.redComponent * ac.alphaComponent,
                           ac.greenComponent * ac.alphaComponent, ac.blueComponent * ac.alphaComponent]
                 let bv = [bc.alphaComponent, bc.redComponent * bc.alphaComponent,
                           bc.greenComponent * bc.alphaComponent, bc.blueComponent * bc.alphaComponent]
-                guard zip(av, bv).allSatisfy({ abs($0 - $1) < 0.01 }) else { return false }
+                error += zip(av, bv).map { abs($0 - $1) }.reduce(0, +)
+                samples += av.count
             }
         }
-        return true
+        return samples > 0 && error / Double(samples) < 0.01
     }
 
     private static func check(_ success: Bool, _ description: String) throws {
