@@ -8,7 +8,7 @@
 
 🎥 View Video Demo ↓
 <p align="center">
-  <a href="https://youtu.be/VA_Nj2Ip_BQ">
+  <a href="https://youtu.be/oanl6tyIvMo">
     <img src="docs/screenshots/inkrail-light-mode.png" alt="Watch the Inkrail demo" width="720">
   </a>
 </p>
