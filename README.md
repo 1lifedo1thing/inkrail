@@ -46,9 +46,23 @@ Switch to **Focus Mode** for a wider page and quieter surroundings.
 In **Top** mode, the capsule and rail move below the visible writing when you
 edit an earlier paragraph.
 
-## Start writing
+## Install directly
 
-Have **Inkrail.app**? (Download from Releases) Drag it into **Applications** and open it.
+Download the latest **Inkrail.app** ZIP from
+[Releases](https://github.com/Aaryanverma/inkrail/releases), unzip
+it, and drag **Inkrail.app** into **Applications**.
+
+Inkrail is not notarized by Apple, so macOS may block it the first time you
+open it. 
+Try either of these steps:
+- In Applications, Control-click (or right-click) **Inkrail.app**, choose
+**Open**, then choose **Open** again in the confirmation dialog. You only need
+to do this the first time. 
+- If macOS does not offer that option, try opening the
+app once, then go to **System Settings → Privacy & Security** and choose
+**Open Anyway** for Inkrail.
+
+## Build from source (optional)
 
 Building from source requires Apple's Swift 5.9+ developer tools. Double-click
 **Launch.command**, or run:
@@ -58,7 +72,7 @@ bash scripts/build-app.sh
 open dist/Inkrail.app
 ```
 
-This preview is not notarized by Apple. See [setup & troubleshooting](docs/DEVELOPMENT.md#start-on-your-mac).
+See [setup & troubleshooting](docs/DEVELOPMENT.md#start-on-your-mac).
 
 | At your desk | Shortcut |
 | :--- | :--- |
