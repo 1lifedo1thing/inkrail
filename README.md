@@ -4,6 +4,9 @@
   <p><em>Paper, ink, and a little room to write.</em></p>
   <p>A quiet, native writing desk for Mac. No accounts or subscriptions.</p>
   <p><strong>macOS 13+ · Offline · Open source</strong><br /></p>
+  <a href="https://github.com/Aaryanverma/inkrail/releases">
+    <img src="https://img.shields.io/github/downloads/Aaryanverma/inkrail/Inkrail.zip?label=Mac%20downloads&amp;displayAssetName=false&amp;labelColor=364238&amp;color=526750" alt="Total downloads of Inkrail.zip across GitHub releases" />
+  </a>
 </div>
 
 🎥 View Video Demo ↓
