@@ -16,7 +16,10 @@ Markdown save individual copies; they do not change the library location.
 
 1. Open **Make it yours → Storage → Change Location…**.
 2. Choose an empty folder, or create a new folder in the chooser. Pick a
-   writable local disk that will be available whenever you open Inkrail.
+   writable folder that will be available whenever you open Inkrail. An
+   iCloud Drive folder can be selected as the library location, but Inkrail
+   does not provide built-in syncing; iCloud handles any syncing outside the
+   app, and sync behavior is not guaranteed.
 3. Inkrail saves any pending writing, copies the complete library and verifies
    the copied contents before switching locations. If saving or copying fails,
    the current location remains selected and Inkrail shows an error.
@@ -34,8 +37,9 @@ fails, files already copied may remain in the destination; your original
 library remains in place. Choose another empty folder when retrying.
 
 Appearance and sound preferences stay in macOS settings on this Mac. They are
-separate from the letter files. Changing the folder does not add iCloud sync or
-support simultaneous editing from multiple Macs.
+separate from the letter files. Inkrail does not provide built-in iCloud sync
+or support simultaneous editing from multiple Macs. Keep a separate backup of
+your library.
 
 ## Recently Deleted keeps letters for 30 days
 
