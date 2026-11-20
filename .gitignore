@@ -6,3 +6,8 @@ dist/
 __pycache__/
 .inkrail-fix-backups/
 extras/
+
+# Local release bundle and demo exports
+/Inkrail-Windows-x64/
+/Inkrail-Windows-x64.zip
+/Inkrail*.mp4

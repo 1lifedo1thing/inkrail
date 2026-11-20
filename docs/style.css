@@ -83,7 +83,7 @@ h1 em { font-style: italic; }
 .play-circle { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 100%; border: 1px solid #656c60; font-size: 9px; padding-left: 2px; transition: border-color .2s; }
 .watch-link:hover .play-circle { border-color: #eae5d4; }
 .watch-time { color: #7a8075; font-family: var(--type); font-size: 10px; margin-left: 6px; }
-.hero-trust { display: flex; align-items: center; gap: 17px; font-family: var(--type); color: #929d8d; font-size: 10px; margin-top: 29px; }
+.hero-trust { display: flex; flex-wrap: wrap; align-items: center; gap: 17px; font-family: var(--type); color: #929d8d; font-size: 10px; margin-top: 29px; }
 .trust-divider { width: 3px; height: 3px; border-radius: 50%; background: #59675b; }
 .hero-aside { min-width: 70px; display: flex; flex-direction: column; justify-content: space-between; align-items: end; color: #536052; padding-top: 4px; padding-bottom: 75px; }
 .aside-vertical { writing-mode: vertical-rl; font-family: var(--type); letter-spacing: .28em; font-size: 9px; }
@@ -226,18 +226,18 @@ kbd { font-family: var(--type); font-size: .92em; white-space: nowrap; }
 .first-launch-icon { flex-shrink: 0; display: grid; place-items: center; border: 1px solid #899985; color: #4d644f; border-radius: 50%; width: 26px; height: 26px; font: italic 16px var(--serif); }
 .first-launch h3 { font: 400 21px var(--serif); margin-bottom: 9px; }
 .first-launch p { color: #626c5d; font-size: 12px; line-height: 1.8; max-width: 780px; margin-bottom: 0; }
-.first-launch > a { flex-shrink: 0; margin-left: auto; font: 10px var(--type); letter-spacing: .07em; color: #566b54; white-space: nowrap; border-bottom: 1px solid #879882; padding-bottom: 7px; }
-.first-launch > a:hover { color: #203e25; }
+.first-launch p + p { margin-top: 8px; }
+.first-launch a { color: #354c35; text-decoration: underline; text-underline-offset: 3px; }
 
 /* Shortcuts */
 .shortcuts-section { background: #d9dacc; color: #313c32; }
 .shortcuts-layout { display: grid; grid-template-columns: 1fr 1.25fr; gap: 13%; }
 .shortcuts-intro h2 { font-size: clamp(56px, 6.2vw, 86px); line-height: 1.04; }
-.shortcuts-intro > p:not(.eyebrow) { font-size: 14px; color: #748071; }
 .shortcuts-motif { font: 260px/1 var(--sans); display: block; color: #bcc3b3; margin-top: 40px; }
-.shortcuts-list { border-top: 1px solid #a9b2a7; }
-.shortcut-row { border-bottom: 1px solid #a9b2a7; display: flex; justify-content: space-between; gap: 15px; padding: 16px 2px; font-size: 13px; align-items: center; }
-.shortcut-row kbd { font-size: 12px; color: #4e5e4e; letter-spacing: .06em; }
+.shortcuts-list { border-collapse: collapse; width: 100%; align-self: start; border-top: 1px solid #a9b2a7; font-size: 13px; text-align: left; }
+.shortcuts-list th, .shortcuts-list td { padding: 12px 5px; border-bottom: 1px solid #a9b2a7; }
+.shortcuts-list tbody th { font-weight: 400; }
+.shortcuts-list kbd { white-space: nowrap; font-size: 12px; color: #4e5e4e; }
 
 /* Privacy */
 .privacy-section { background: #19201b; }
@@ -255,6 +255,7 @@ kbd { font-family: var(--type); font-size: .92em; white-space: nowrap; }
 .privacy-detail p { color: #6e796c; font-size: 12px; line-height: 1.7; margin-bottom: 9px; }
 .privacy-detail strong { color: #3c523c; }
 .file-path { display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.file-path + p { margin-top: 14px; }
 .file-path code { font: 10px/1.6 var(--type); color: #3d533e; background: #d9decb; padding: 11px 12px; border-radius: 2px; overflow-wrap: anywhere; min-width: 0; }
 .file-path button { border: 1px solid #b3beaa; background: #d7dccc; color: #425b45; padding: 9px; border-radius: 3px; flex-shrink: 0; }
 .file-path button:hover { background: #c7d2bf; }
@@ -425,7 +426,6 @@ kbd { font-family: var(--type); font-size: .92em; white-space: nowrap; }
   .step-number { margin-bottom: 32px; }
   .first-launch { flex-wrap: wrap; padding: 23px 20px; }
   .first-launch > div:nth-child(2) { flex: 1 1 calc(100% - 50px); }
-  .first-launch > a { margin: 0 0 0 44px; }
   .shortcuts-layout { display: block; }
   .shortcuts-intro h2 { font-size: 63px; margin-bottom: 10px; }
   .shortcuts-motif { display: none; }

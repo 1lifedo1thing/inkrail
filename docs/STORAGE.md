@@ -2,31 +2,37 @@
 
 [Back to the user guide](../README.md#your-letters)
 
-Inkrail saves your library locally. The default folder is:
+Inkrail saves your library locally. **Make it yours → Storage** shows the
+current folder, including a custom location.
 
-```text
-~/Library/Application Support/Inkrail/
-```
+| Platform | Default library folder | Open the current folder |
+| --- | --- | --- |
+| macOS | `~/Library/Application Support/Inkrail/` | **Writing → Show Local Files** |
+| Windows | `%APPDATA%\Inkrail\Library` | **Make it yours → Storage → Show in File Explorer** |
 
-Open **Make it yours (⌘,) → Storage** to see your current location, or choose
-**Writing → Show Local Files** to open it in Finder. Export Text and Export
-Markdown save individual copies; they do not change the library location.
+To move one letter between Mac and Windows, choose **File → Export Markdown…**
+on Mac. On Windows, press **Alt+F** and choose **Export Markdown…**. Import the saved
+`.md` file with **⌘O** on Mac or **Ctrl+O** on Windows. Use **Export Text…**
+for a plain-text copy.
 
 ## Choose a different folder
 
 1. Open **Make it yours → Storage → Change Location…**.
 2. Choose an empty folder, or create a new folder in the chooser. Pick a
-   writable folder that will be available whenever you open Inkrail. An
-   iCloud Drive folder can be selected as the library location, but Inkrail
-   does not provide built-in syncing; iCloud handles any syncing outside the
-   app, and sync behavior is not guaranteed.
+   writable folder that will be available whenever you open Inkrail.
 3. Inkrail saves any pending writing, copies the complete library and verifies
    the copied contents before switching locations. If saving or copying fails,
    the current location remains selected and Inkrail shows an error.
 4. Check the new path in Storage. Future saves, deletion and restore use that
    folder, including after you quit and reopen the app.
 
-The complete library includes **Letters**, **Recently Deleted**, previous saved
+Use one running copy of Inkrail per library. Back up the whole current library
+folder. On Windows, letters are in its **Letters** subfolder. Windows
+preferences live separately in `%APPDATA%\Inkrail\preferences.json`.
+
+### macOS storage details
+
+On Mac, the complete library includes **Letters**, **Recently Deleted**, previous saved
 copies (`.json.bak`) and any **Recovery** files. Inkrail leaves the previous
 folder intact as a safety copy. It no longer receives updates, so use the new
 folder for backups and recovery after making further edits.
@@ -36,15 +42,20 @@ existing files, or allow a destination inside the current library. If a copy
 fails, files already copied may remain in the destination; your original
 library remains in place. Choose another empty folder when retrying.
 
-Appearance and sound preferences stay in macOS settings on this Mac. They are
-separate from the letter files. Inkrail does not provide built-in iCloud sync
-or support simultaneous editing from multiple Macs. Keep a separate backup of
-your library.
+Appearance and sound preferences stay in macOS settings on this Mac. You
+can choose a folder in iCloud Drive. iCloud handles syncing outside Inkrail,
+and sync behavior is not guaranteed. Keep a separate backup and use one Mac
+at a time to edit the library.
 
 ## Recently Deleted keeps letters for 30 days
 
-Restore deleted letters from the letter box within 30 days of deletion. After
-that, Inkrail permanently removes the deleted letter and its matching previous
+Open the letter box with **⇧⌘O** on Mac or **Ctrl+Shift+O** on Windows.
+Choose **Recently deleted**, then **Restore** beside the letter within
+30 days of deletion.
+
+### macOS cleanup details
+
+After 30 days, the Mac app permanently removes the deleted letter and its matching previous
 saved copy. It checks when opening the app, hourly while running, and before
 showing Recently Deleted or restoring a letter. If the app is closed at expiry,
 cleanup waits until the next launch.
@@ -65,10 +76,8 @@ a notice in Recently Deleted and retries later.
 
 ## Keep your library available
 
-Use **Change Location…** when moving your library instead of dragging its
-folder elsewhere in Finder. Inkrail remembers the selected path. If that
-folder is missing or unavailable at launch, the app reports that storage is
-unavailable rather than creating a replacement library elsewhere.
+Use **Change Location…** to move your library. Inkrail remembers the selected
+path and reports when the folder is unavailable.
 
 Reconnect an external disk or put the folder back at the selected path, then
 reopen Inkrail. If you have written while storage was unavailable, **export
@@ -76,13 +85,13 @@ that writing before closing**. If a save fails because the disk is full or
 unwritable, free space or fix access, then save again. A failed save is never
 reported as successful.
 
-Include the current library folder in your regular Mac backups. Previous saved
+Include the current library folder in your regular backups. Previous saved
 copies and the old folder left after relocation are useful fallbacks, but they
 do not replace a separate backup.
 
 ## If you used the earlier symbolic-link workaround
 
-You do not need to remove a working symbolic link to use the app. The new
+On macOS, you can keep a working symbolic link. The
 location chooser can copy the library from the linked location into a new,
 empty folder. After a successful change, Inkrail uses the new path directly.
 Keep both the old link and its target until you have checked your new library

@@ -122,58 +122,53 @@
     dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
   });
 
-  const path = '~/Library/Application Support/Inkrail/';
   const feedback = document.getElementById('copy-feedback');
-  document.getElementById('copy-path')?.addEventListener('click', async () => {
-    let copied = false;
-    try { await navigator.clipboard.writeText(path); copied = true; } catch (_) {
-      const input = document.createElement('textarea');
-      input.value = path;
-      input.style.position = 'fixed'; input.style.opacity = '0';
-      document.body.appendChild(input); input.select();
-      try { copied = document.execCommand('copy'); } catch (_) { /* no clipboard permission */ }
-      input.remove();
-    }
-    if (feedback) feedback.textContent = copied ? 'Copied to clipboard.' : 'Select the path to copy it.';
+  document.querySelectorAll('[data-copy-path]').forEach(button => {
+    const code = button.closest('.file-path')?.querySelector('code');
+    if (!code) return;
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      const path = code.textContent;
+      let copied = false;
+      try { await navigator.clipboard.writeText(path); copied = true; } catch (_) {
+        const input = document.createElement('textarea');
+        input.value = path;
+        input.style.position = 'fixed'; input.style.opacity = '0';
+        document.body.appendChild(input); input.select();
+        try { copied = document.execCommand('copy'); } catch (_) { /* no clipboard permission */ }
+        input.remove();
+        button.focus({ preventScroll: true });
+      }
+      if (feedback) feedback.textContent = copied ? button.dataset.copyPath + ' path copied.' : 'Select the path to copy it.';
+    });
   });
 
-  // The static links point to v0.1.1 until GitHub returns the latest release.
-  const API = 'https://api.github.com/repos/Aaryanverma/inkrail/releases/latest';
-  const downloadLinks = [...document.querySelectorAll('[data-download-link]')];
-  const releaseLink = document.querySelector('.closing-github');
-  function safeBinaryURL(input) {
-    try {
-      const u = new URL(input);
-      const isGitHub = u.protocol === 'https:' && u.hostname === 'github.com';
-      const isRelease = u.pathname.startsWith('/Aaryanverma/inkrail/releases/download/');
-      if (isGitHub && isRelease && /\.(zip|dmg)$/i.test(u.pathname)) return u.toString();
-    } catch (_) { /* ignore unknown links */ }
-    return null;
-  }
-  function binaryFromRelease(release) {
-    const namedAssets = (release.assets || []).filter(a => /(?:^|[^a-z])inkrail(?:[-_. ]|$)/i.test(a.name || '') && /\.(zip|dmg)$/i.test(a.name || ''));
-    const asset = namedAssets.find(a => /\.zip$/i.test(a.name)) || namedAssets[0];
-    return asset ? safeBinaryURL(asset.browser_download_url) : null;
+  // Windows x64 and Mac builds can be published separately.
+  const API = 'https://api.github.com/repos/Aaryanverma/inkrail/releases?per_page=100';
+  const releaseDownloads = 'https://github.com/Aaryanverma/inkrail/releases/download/';
+  function updateDownload(releases, platform, filename) {
+    const release = releases.find(item =>
+      !item.draft && (platform === 'windows' || !item.prerelease) &&
+      item.assets.some(asset => asset.name === filename && asset.state === 'uploaded')
+    );
+    if (!release) return;
+
+    const url = releaseDownloads + encodeURIComponent(release.tag_name) + '/' + filename;
+    document.querySelectorAll('[data-download="' + platform + '"]').forEach(link => {
+      link.href = url;
+    });
+    if (platform === 'mac') {
+      document.querySelector('[data-release-version]').textContent = release.tag_name;
+    }
   }
   const controller = new AbortController();
   const fetchTimeout = setTimeout(() => controller.abort(), 6500);
   fetch(API, { headers: { Accept: 'application/vnd.github+json' }, signal: controller.signal })
     .then(res => { if (!res.ok) throw new Error('GitHub API is unavailable'); return res.json(); })
-    .then(release => {
-      if (typeof release.tag_name === 'string' && /^v?\d+(\.\d+){1,3}/.test(release.tag_name)) {
-        document.querySelectorAll('[data-release-version]').forEach(el => { el.textContent = release.tag_name; });
-      }
-      const binary = binaryFromRelease(release);
-      if (binary) downloadLinks.forEach(link => { link.href = binary; });
-      else if (release.html_url?.startsWith('https://github.com/Aaryanverma/inkrail/releases/')) {
-        // Never misrepresent a source archive as the application. Use the latest release page instead.
-        downloadLinks.forEach(link => {
-          link.href = release.html_url;
-          link.title = 'Open the latest release to download the macOS application';
-        });
-      }
-      if (releaseLink && release.html_url?.startsWith('https://github.com/Aaryanverma/inkrail/releases/')) releaseLink.href = release.html_url;
+    .then(releases => {
+      updateDownload(releases, 'mac', 'Inkrail.zip');
+      updateDownload(releases, 'windows', 'Inkrail-Windows-x64.zip');
     })
-    .catch(() => { /* static v0.1.1 download remains available */ })
+    .catch(() => { /* Both v0.1.1 download links work without the release API. */ })
     .finally(() => clearTimeout(fetchTimeout));
 })();

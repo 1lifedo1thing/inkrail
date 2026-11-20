@@ -2,10 +2,9 @@
 
 [Back to the user guide](../README.md)
 
-This document preserves the detailed implementation, compatibility and design
-notes previously in the README. For everyday use, installation, shortcuts and
-file recovery, start with the user guide. Dated implementation notes describe
-how the app evolved; consult the validation history for checks actually run.
+This repository contains the macOS Swift package. The build instructions and
+detailed design notes below describe the Mac app. Windows x64 uses a portable
+build with a WebView2 editor and bundled Courier Prime fonts.
 
 ## Start on your Mac
 
@@ -44,6 +43,24 @@ not a generated `.xcodeproj`; Xcode supports opening the package directly.
 `swift run Inkrail` is another development option, but the built `.app` is
 preferred for normal Dock and application-menu behavior.
 
+## GitHub release files
+
+| Destination | Files |
+| --- | --- |
+| Source repository | The Swift package, app resources, tests, build scripts, CI workflow, license, README and Pages files. To build the Windows x64 app from source, include its Go host source, module files, UI sources and build instructions from the Windows project. |
+| macOS release assets | `Inkrail.zip` containing `Inkrail.app`. The published v0.1.1 archive is for Apple silicon. |
+| Windows x64 release assets | `Inkrail-Windows-x64.zip` containing `Inkrail.exe`, the required `ui/` tree, license notices, `START-HERE.txt`, `files.sha256` and the optional PowerShell smoke test. |
+
+The v0.1.1 release carries both platform ZIPs under **Assets**. For future releases, keep the platform filenames so the download page can find each build, even when the Windows x64 build is published separately. GitHub supplies the source ZIP and tarball for each tag. [v0.1.1 release](https://github.com/Aaryanverma/inkrail/releases/tag/v0.1.1)
+
+Hash the exact Windows ZIP you intend to attach. From its directory, run
+`Get-FileHash .\Inkrail-Windows-x64.zip -Algorithm SHA256` in PowerShell or
+`shasum -a 256 Inkrail-Windows-x64.zip` on macOS. Include the digest in the
+release notes with the x64 architecture, code signing status and
+Microsoft Edge WebView2 Evergreen Runtime requirement.
+
+To check the ZIP on a Windows x64 PC, extract it, close Inkrail and run `.\Check-Inkrail.ps1` from PowerShell in the extracted folder. It checks typing, saving on close and reopening with a temporary library.
+
 ## Make it yours
 
 Open **Make it yours** with **Command-comma (⌘,)**. Settings are arranged in
@@ -68,8 +85,8 @@ margin decoration remains a separate option.
 The typefaces are **Courier**, **American Typewriter**, **Menlo**, **Georgia**,
 **Courier New**, **Typewriter Light**, **Typewriter Condensed** and **Monaco**.
 The Light and Condensed choices use American Typewriter's corresponding faces.
-Inkrail resolves installed macOS fonts and uses a local fallback
-if a face is unavailable. No font files are bundled or downloaded. The editor,
+The Mac app resolves installed fonts and uses a local fallback
+if a face is unavailable. The editor,
 placeholder and previews use the same selected face. Font and paper styling
 apply to the desk; plain-text and Markdown exports still contain only words.
 
