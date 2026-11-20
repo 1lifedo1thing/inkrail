@@ -137,8 +137,7 @@
     if (feedback) feedback.textContent = copied ? 'Copied to clipboard.' : 'Select the path to copy it.';
   });
 
-  // Current public release: use the actual macOS app archive, not GitHub's automatic source-code ZIP.
-  // Fail gracefully to the verified 0.1.1 archive already present in static anchor hrefs.
+  // The static links point to v0.1.1 until GitHub returns the latest release.
   const API = 'https://api.github.com/repos/Aaryanverma/inkrail/releases/latest';
   const downloadLinks = [...document.querySelectorAll('[data-download-link]')];
   const releaseLink = document.querySelector('.closing-github');
@@ -146,26 +145,15 @@
     try {
       const u = new URL(input);
       const isGitHub = u.protocol === 'https:' && u.hostname === 'github.com';
-      const isAttachment = u.pathname.startsWith('/user-attachments/files/');
       const isRelease = u.pathname.startsWith('/Aaryanverma/inkrail/releases/download/');
-      if (isGitHub && (isAttachment || isRelease) && /\.(zip|dmg)$/i.test(u.pathname)) return u.toString();
+      if (isGitHub && isRelease && /\.(zip|dmg)$/i.test(u.pathname)) return u.toString();
     } catch (_) { /* ignore unknown links */ }
     return null;
   }
   function binaryFromRelease(release) {
     const namedAssets = (release.assets || []).filter(a => /(?:^|[^a-z])inkrail(?:[-_. ]|$)/i.test(a.name || '') && /\.(zip|dmg)$/i.test(a.name || ''));
     const asset = namedAssets.find(a => /\.zip$/i.test(a.name)) || namedAssets[0];
-    if (asset) {
-      const u = safeBinaryURL(asset.browser_download_url);
-      if (u) return u;
-    }
-    const body = release.body || '';
-    const matches = body.matchAll(/\[[^\]]*(?:inkrail|download)[^\]]*\]\((https:\/\/github\.com\/[^)]+\.(?:zip|dmg))\)/gi);
-    for (const item of matches) {
-      const u = safeBinaryURL(item[1]);
-      if (u) return u;
-    }
-    return null;
+    return asset ? safeBinaryURL(asset.browser_download_url) : null;
   }
   const controller = new AbortController();
   const fetchTimeout = setTimeout(() => controller.abort(), 6500);
