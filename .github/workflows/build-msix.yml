@@ -1,0 +1,45 @@
+name: Build Inkrail MSIX (Microsoft Store)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'GitHub release containing Inkrail-Windows-x64.zip'
+        required: true
+        default: 'v0.1.1'
+        type: string
+      package_version:
+        description: 'MSIX Store version (Major.Minor.Build.0)'
+        required: true
+        default: '1.0.0.0'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    env:
+      SOURCE_TAG: ${{ inputs.release_tag }}
+      PACKAGE_VERSION: ${{ inputs.package_version }}
+      MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+      MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+      MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+
+    steps:
+      - name: Check out Inkrail
+        uses: actions/checkout@v4
+
+      - name: Build unsigned MSIX for Microsoft Store
+        shell: pwsh
+        run: ./packaging/msix/build-msix.ps1
+
+      - name: Upload Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Inkrail-MSIX-${{ inputs.package_version }}-x64
+          path: dist-msix/*.msix
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
