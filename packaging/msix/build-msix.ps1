@@ -25,8 +25,12 @@ foreach ($setting in @{
     }
 }
 
-$numbers = $Version.Split('.')
-if ($numbers.Count -ne 4 -or ($numbers | Where-Object { $_ -notmatch '^\d+$' }).Count -gt 0) {
+$numbers = @($Version.Split('.'))
+$invalidNumbers = @(
+    $numbers | Where-Object { $_ -notmatch '^\d+$' }
+)
+
+if ($numbers.Count -ne 4 -or $invalidNumbers.Count -gt 0) {
     throw 'Package version must have four numeric parts, e.g. 1.0.0.0.'
 }
 $parts = @($numbers | ForEach-Object { [int]$_ })
