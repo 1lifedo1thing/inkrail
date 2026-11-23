@@ -24,9 +24,9 @@ final class InkLayoutManager: NSLayoutManager {
         guard let geometry = rollGeometry else { return rect }
         if let line = rawLine(at: NSPoint(x: rect.midX, y: rect.midY), origin: geometry.origin),
            line.height > 0 {
-            let top = line.minY + geometry.origin.y - geometry.clip.minY
-            let bottom = line.maxY + geometry.origin.y - geometry.clip.minY
-            let scaleY = max(0.001, (geometry.projection.projectY(bottom) - geometry.projection.projectY(top)) / line.height)
+            let top = Double(line.minY + geometry.origin.y - geometry.clip.minY)
+            let bottom = Double(line.maxY + geometry.origin.y - geometry.clip.minY)
+            let scaleY = max(0.001, (geometry.projection.projectY(bottom) - geometry.projection.projectY(top)) / Double(line.height))
             let scaleX = geometry.projection.horizontalScale(at: (top + bottom) / 2)
             return NSRect(x: geometry.projection.width / 2 + (rect.minX - geometry.projection.width / 2) * scaleX,
                           y: geometry.clip.minY + geometry.projection.projectY(top)
@@ -51,9 +51,9 @@ final class InkLayoutManager: NSLayoutManager {
         let approximate = NSPoint(x: geometry.projection.unprojectX(point.x, at: rawY),
                                   y: rawY + geometry.clip.minY)
         guard let line = rawLine(at: approximate, origin: geometry.origin), line.height > 0 else { return approximate }
-        let top = line.minY + geometry.origin.y - geometry.clip.minY
-        let bottom = line.maxY + geometry.origin.y - geometry.clip.minY
-        let scaleY = max(0.001, (geometry.projection.projectY(bottom) - geometry.projection.projectY(top)) / line.height)
+        let top = Double(line.minY + geometry.origin.y - geometry.clip.minY)
+        let bottom = Double(line.maxY + geometry.origin.y - geometry.clip.minY)
+        let scaleY = max(0.001, (geometry.projection.projectY(bottom) - geometry.projection.projectY(top)) / Double(line.height))
         let scaleX = geometry.projection.horizontalScale(at: (top + bottom) / 2)
         return NSPoint(x: geometry.projection.width / 2 + (point.x - geometry.projection.width / 2) / scaleX,
                        y: geometry.origin.y + line.minY
@@ -140,13 +140,13 @@ final class InkLayoutManager: NSLayoutManager {
         resolvingProjectedPoint = wasResolving
         guard range.length > 0 else { return }
         enumerateLineFragments(forGlyphRange: range) { line, _, _, glyphRange, _ in
-            let top = line.minY + origin.y - geometry.clip.minY
-            let bottom = line.maxY + origin.y - geometry.clip.minY
+            let top = Double(line.minY + origin.y - geometry.clip.minY)
+            let bottom = Double(line.maxY + origin.y - geometry.clip.minY)
             let projectedTop = projection.projectY(top)
             let projectedBottom = projection.projectY(bottom)
             guard projectedBottom > 0, projectedTop < geometry.clip.height,
                   line.height > 0 else { return }
-            let scaleY = max(0.001, (projectedBottom - projectedTop) / line.height)
+            let scaleY = max(0.001, (projectedBottom - projectedTop) / Double(line.height))
             let scaleX = projection.horizontalScale(at: (top + bottom) / 2)
             context.saveGState()
             context.translateBy(x: projection.width / 2 * (1 - scaleX),
