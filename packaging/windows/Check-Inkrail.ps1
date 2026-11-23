@@ -64,7 +64,13 @@ function Call-CDP([string]$method, $arguments) {
 }
 function Eval-Desk([string]$expression) {
     $result = Call-CDP 'Runtime.evaluate' @{expression=$expression;returnByValue=$true}
-    if ($result.exceptionDetails) { throw ('Desk evaluation failed: ' + $result.exceptionDetails.text) }
+    if ($result.exceptionDetails) {
+        $details = $result.exceptionDetails
+        $reason = $details.exception.description
+        if (-not $reason) { $reason = $details.exception.value }
+        if (-not $reason) { $reason = $details.text }
+        throw "Desk evaluation failed for [$expression]: $reason"
+    }
     return $result.result.value
 }
 function Wait-Desk([string]$expression) {
@@ -76,9 +82,15 @@ function Wait-Desk([string]$expression) {
     throw "The desk did not reach the expected state: $expression"
 }
 function Click-Desk([string]$selector) {
-    $element = 'document.querySelector(' + (ConvertTo-Json $selector -Compress) + ')'
-    Wait-Desk "$element && !$element.disabled"
-    $null = Eval-Desk "$element.click()"
+    $selectorJson = ConvertTo-Json $selector -Compress
+    Wait-Desk @"
+(() => {
+    const button = document.querySelector($selectorJson);
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+})()
+"@
 }
 function Start-Desk([string]$profileDirectory = $testProfile) {
     $port = Get-TestPort
@@ -103,7 +115,7 @@ function Start-Desk([string]$profileDirectory = $testProfile) {
         $script:socket.ConnectAsync($endpoint,$ct.Token).GetAwaiter().GetResult() | Out-Null
     } finally { $ct.Dispose() }
     do {
-        if ((Eval-Desk "document.documentElement.dataset.ready==='true'")) { return }
+        if ((Eval-Desk "document.documentElement?.dataset.ready === 'true'")) { return }
         Start-Sleep -Milliseconds 100
     } while ((Get-Date) -lt $deadline)
     throw 'The window opened but the editor did not finish starting.'
