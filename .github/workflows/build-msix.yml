@@ -11,7 +11,7 @@ on:
       package_version:
         description: 'MSIX Store version (Major.Minor.Build.0)'
         required: true
-        default: '1.0.0.0'
+        default: '1.0.1.0'
         type: string
 
 permissions:
@@ -31,9 +31,28 @@ jobs:
       - name: Check out Inkrail
         uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check Store profile migration
+        shell: pwsh
+        run: |
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $test = Join-Path $env:RUNNER_TEMP 'Test-Inkrail-Migration.exe'
+          & $compiler /nologo /main:ProfileMigrationChecks /reference:System.Windows.Forms.dll "/out:$test" packaging/msix/StoreLauncher.cs packaging/msix/tests/ProfileMigrationChecks.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $test
+          exit $LASTEXITCODE
+
       - name: Build unsigned MSIX for Microsoft Store
         shell: pwsh
         run: ./packaging/msix/build-msix.ps1
+
+      - name: Check clipboard, Markdown and typewriter sounds in the packaged Windows editor
+        shell: pwsh
+        timeout-minutes: 3
+        run: ./packaging/windows/check-packaged-editor.ps1 -Archive dist-msix/Inkrail-Windows-x64.zip
 
       - name: Upload Store package
         uses: actions/upload-artifact@v4
@@ -42,4 +61,12 @@ jobs:
           path: dist-msix/*.msix
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
+
+      - name: Upload corrected portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Inkrail-Windows-portable-${{ inputs.package_version }}-x64
+          path: dist-msix/Inkrail-Windows-x64.zip
+          if-no-files-found: error
           compression-level: 0

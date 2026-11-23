@@ -129,11 +129,9 @@ struct PaperStage: View {
                     MarginGarden().offset(y: -caret.scrollOffset).animation(nil, value: caret.scrollOffset)
                 }
                 PaperEditor(
-                    pageID: page.id,
-                    text: page.text,
-                    formatting: page.formatting,
+                    page: page, currentPage: { model.selectedPage },
                     preferences: model.preferences,
-                    onChange: { model.edit($0, formatting: $1) },
+                    onChange: { model.edit($0, text: $1, formatting: $2) },
                     onCaret: { position in
                         if caret.startPosition != startPosition || caret.followingTextBottom != position.followingTextBottom {
                             // Move directly to clear the text, including during scrolling.
@@ -148,7 +146,8 @@ struct PaperStage: View {
                         }
                     },
                     onStroke: handleStroke,
-                    onEmphasisChange: { activeEmphasis = $0 }
+                    onEmphasisChange: { activeEmphasis = $0 },
+                    onConnect: { model.editor = $0 }
                 )
                 .frame(width: width, height: editorHeight)
                 if page.text.isEmpty {
@@ -252,7 +251,7 @@ struct PaperStage: View {
             SoundEngine.shared.play(kind, volume: model.preferences.soundVolume,
                                     style: model.preferences.typewriterSound)
         }
-        guard kind != .navigation else { return }
+        guard kind != .navigation, kind != .bell else { return }
         strokeSequence += 1
         let sequence = strokeSequence
         striking = true

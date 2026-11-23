@@ -24,7 +24,9 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
     -module-cache-path "$INKRAIL_CHECK_DIR/ModuleCache" \
     -I "$INKRAIL_CHECK_DIR" -L "$INKRAIL_CHECK_DIR" -lInkrailCore \
     -Xlinker -rpath -Xlinker @loader_path \
+    "$INKRAIL_ROOT/Sources/Inkrail/Editor/LetterEditor.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/AppModel.swift" \
+    "$INKRAIL_ROOT/scripts/fixtures/storage-model-support.swift" \
     "$INKRAIL_ROOT/scripts/fixtures/storage-model-check.swift" \
     -o "$INKRAIL_CHECK_DIR/storage-model-check"
 "$INKRAIL_CHECK_DIR/storage-model-check"

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const MEDIA = 'https://raw.githubusercontent.com/Aaryanverma/inkrail/main/docs/screenshots/';
+  const MEDIA = 'https://raw.githubusercontent.com/Aaryanverma/inkrail/main/screenshots/';
   const images = {
     day: { file: 'inkrail-light-mode.png', alt: 'Inkrail with light textured paper, a small typewriter carriage, and a botanical desk accent', heroCaption: 'A page that feels like yours.', galleryCaption: 'A fresh page, full of possibility.' },
     night: { file: 'inkrail-night-mode.png', alt: 'Inkrail in night writing mode, with softly illuminated dark paper', heroCaption: 'A gentler way to write after dark.', galleryCaption: 'A gentler way to write after dark.' },
@@ -143,12 +143,12 @@
     });
   });
 
-  // Windows x64 and Mac builds can be published separately.
+  // Keep historical downloads usable until the next release includes each asset.
   const API = 'https://api.github.com/repos/Aaryanverma/inkrail/releases?per_page=100';
   const releaseDownloads = 'https://github.com/Aaryanverma/inkrail/releases/download/';
   function updateDownload(releases, platform, filename) {
     const release = releases.find(item =>
-      !item.draft && (platform === 'windows' || !item.prerelease) &&
+      !item.draft && !item.prerelease &&
       item.assets.some(asset => asset.name === filename && asset.state === 'uploaded')
     );
     if (!release) return;
@@ -156,6 +156,8 @@
     const url = releaseDownloads + encodeURIComponent(release.tag_name) + '/' + filename;
     document.querySelectorAll('[data-download="' + platform + '"]').forEach(link => {
       link.href = url;
+      const armLabel = link.querySelector('[data-arm-label]');
+      if (armLabel) armLabel.textContent = 'Download for Windows ARM64';
     });
     if (platform === 'mac') {
       document.querySelector('[data-release-version]').textContent = release.tag_name;
@@ -167,8 +169,9 @@
     .then(res => { if (!res.ok) throw new Error('GitHub API is unavailable'); return res.json(); })
     .then(releases => {
       updateDownload(releases, 'mac', 'Inkrail.zip');
-      updateDownload(releases, 'windows', 'Inkrail-Windows-x64.zip');
+      updateDownload(releases, 'windows-x64', 'Inkrail-Windows-x64.zip');
+      updateDownload(releases, 'windows-arm64', 'Inkrail-Windows-arm64.zip');
     })
-    .catch(() => { /* Both v0.1.1 download links work without the release API. */ })
+    .catch(() => { /* Static links still lead to the Mac and x64 downloads and the public release page. */ })
     .finally(() => clearTimeout(fetchTimeout));
 })();

@@ -35,7 +35,7 @@ struct InkrailApp: App {
                 Button("Import Text or Markdown…") { model.importText() }.keyboardShortcut("o")
             }
             CommandGroup(replacing: .saveItem) {
-                Button("Save") { _ = model.flush() }.keyboardShortcut("s")
+                Button("Save") { model.saveNow() }.keyboardShortcut("s")
                 Button("Export Text…") { model.export() }.keyboardShortcut("e", modifiers: [.command, .shift])
                 Button("Export Markdown…") { model.export(markdown: true) }
             }
@@ -80,7 +80,7 @@ final class InkrailDelegate: NSObject, NSApplicationDelegate {
     func applicationDidResignActive(_ notification: Notification) { _ = model?.flush() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model, !model.flush() else { return .terminateNow }
+        guard let model, !model.saveNow() else { return .terminateNow }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Some writing has not been saved."

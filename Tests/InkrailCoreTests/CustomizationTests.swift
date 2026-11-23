@@ -86,10 +86,10 @@ final class CustomizationTests: XCTestCase {
         XCTAssertEqual(preferences.lampWarmth, 0.12)
     }
 
-    func testAllSixSoundIdentifiersStayStable() throws {
+    func testMachineIdentifiersRoundTrip() throws {
         let sounds: [(TypewriterSound, String)] = [
-            (.classic, "classic"), (.soft, "soft"), (.crisp, "crisp"),
-            (.portable, "portable"), (.office, "office"), (.electric, "electric")
+            (.classic, "classic"), (.soft, "soft"), (.royal, "royal"),
+            (.vintage, "vintage"), (.portable, "portable"), (.electric, "electric")
         ]
         XCTAssertEqual(Set(TypewriterSound.allCases), Set(sounds.map { $0.0 }))
         for (sound, identifier) in sounds {
@@ -100,11 +100,14 @@ final class CustomizationTests: XCTestCase {
         }
     }
 
-    func testLiteralThreeProfilePreferencesPreserveSoundAndOtherChoices() throws {
-        // Literal pre-expansion records, not data emitted by the current encoder.
-        for sound in [TypewriterSound.classic, .soft, .crisp] {
+    func testLegacySoundPreferencesMapToMachinesAndPreserveOtherChoices() throws {
+        let legacy: [(String, TypewriterSound)] = [
+            ("classic", .classic), ("soft", .soft), ("crisp", .vintage),
+            ("portable", .portable), ("office", .royal), ("electric", .electric)
+        ]
+        for (identifier, sound) in legacy {
             let preferences = try decode("""
-            {"typewriterSound":"\(sound.rawValue)","soundEnabled":false,"soundVolume":0.17,
+            {"typewriterSound":"\(identifier)","soundEnabled":false,"soundVolume":0.17,
              "paper":"cream","paperMotion":"roll","paperStartPosition":"bottom",
              "paperTexture":"cotton","writingFont":"georgia","mechanismStyle":"walnut",
              "matchRailToStyle":false,"rail":"brass","nightMode":true,"lampWarmth":0.91}
@@ -124,6 +127,9 @@ final class CustomizationTests: XCTestCase {
             expected.nightMode = true
             expected.lampWarmth = 0.91
             XCTAssertEqual(preferences, expected)
+            let saved = try JSONEncoder().encode(preferences)
+            let record = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+            XCTAssertEqual(record["typewriterSound"] as? String, sound.rawValue)
         }
     }
 

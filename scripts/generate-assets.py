@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Regenerate Inkrail's original grain, base icon and synthesized sounds.
+"""Regenerate Inkrail's original grain, base icon and modeled typewriter actions.
 Optional development tool. Requires numpy and Pillow; not needed to build/run.
-No fonts, recordings, or third-party artwork are bundled.
+The edited CC0 typewriter recordings are retained as bundled masters.
 The base icon goes to .build; the finished packaging icon is preserved.
 """
 from pathlib import Path
 import math
-import wave
+import subprocess
+import sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -32,40 +33,8 @@ for _ in range(100):
     draw.line((int(x), int(y), int(x+rng.integers(2, 7)), int(y+rng.integers(-1, 2))), fill=(92, 81, 55, 22))
 paper.save(RES / "paper-grain.png", optimize=True)
 
-SR = 44100
-
-def write_wave(name, data):
-    data = np.clip(data, -0.84, 0.84)
-    with wave.open(str(RES / f"{name}.wav"), "wb") as output:
-        output.setnchannels(1)
-        output.setsampwidth(2)
-        output.setframerate(SR)
-        output.writeframes((data * 32767).astype('<i2').tobytes())
-
-for n in range(1, 4):
-    t = np.arange(int(SR * 0.095)) / SR
-    noise = rng.normal(0, 0.22, len(t))
-    transient = noise * np.exp(-t * (105 + n * 6))
-    ring = 0.24 * np.sin(2 * np.pi * (1450 + n * 170) * t) * np.exp(-t * 115)
-    body = 0.17 * np.sin(2 * np.pi * (210 + n * 23) * t) * np.exp(-t * 60)
-    rebound = np.roll(noise * np.exp(-t * 180), int(0.023 * SR)) * 0.30
-    envelope = np.minimum(t / 0.0005, 1)
-    write_wave(f"key-{n}", (transient + ring + body + rebound) * envelope)
-
-t = np.arange(int(SR * 0.13)) / SR
-write_wave("space", (rng.normal(0, 0.22, len(t)) * np.exp(-t*90) + 0.24*np.sin(2*np.pi*145*t)*np.exp(-t*38)) * np.minimum(t/0.001, 1))
-t = np.arange(int(SR * 0.075)) / SR
-write_wave("erase", (rng.normal(0, 0.17, len(t))*np.exp(-t*110) + 0.15*np.sin(2*np.pi*390*t)*np.exp(-t*65)) * np.minimum(t/0.001, 1))
-t = np.arange(int(SR * 0.42)) / SR
-sound = 0.10*np.sin(2*np.pi*1850*t)*np.exp(-t*15) + 0.045*np.sin(2*np.pi*2740*t)*np.exp(-t*22)
-for k in range(7):
-    delay = 0.04 + k * 0.025
-    local = np.maximum(0, t-delay)
-    gate = t >= delay
-    sound += gate * rng.normal(0, 0.07, len(t)) * np.exp(-local*140)
-local = np.maximum(0, t - 0.25)
-sound += (t >= 0.25) * (0.19*np.sin(2*np.pi*180*local) + rng.normal(0, 0.09, len(t))) * np.exp(-local*55)
-write_wave("return", sound * np.minimum(t/0.001, 1))
+# Use the same reproducible audio generator as the standalone sound build.
+subprocess.run([sys.executable, str(ROOT / "scripts/generate-sound-styles.py")], check=True)
 
 # Procedural base icon for reference; the finished wordmark icon is maintained
 # separately in Sources/Inkrail/Resources/AppIcon.png.
@@ -97,4 +66,4 @@ for i, fill in enumerate([(128,153,105,255),(154,117,97,255),(80,87,70,255)]):
 base_icon = ROOT / ".build" / "icon-base-generated.png"
 base_icon.parent.mkdir(parents=True, exist_ok=True)
 icon.save(base_icon, optimize=True)
-print("Generated paper grain, six sounds, and .build/icon-base-generated.png. Finished app icon preserved.")
+print("Generated paper grain, sound profiles, and .build/icon-base-generated.png. Finished app icon preserved.")

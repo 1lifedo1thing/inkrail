@@ -33,6 +33,8 @@ final class InkTextView: NSTextView {
     var onWillEdit: (() -> Void)?
     var onInteraction: (() -> Void)?
     private(set) var performingNativeEdit = false
+    private var readingPasteboard = false
+    private var compositionBeganAtCaret = false
 
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
         [LetterSelection.pasteboardType] + super.writablePasteboardTypes
@@ -49,6 +51,8 @@ final class InkTextView: NSTextView {
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [LetterSelection.pasteboardType, .rtf, .string] }
 
     override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        readingPasteboard = true
+        defer { readingPasteboard = false }
         let content: NSAttributedString?
         if type == LetterSelection.pasteboardType, let data = pasteboard.data(forType: type) {
             content = decodeSelection(data)
@@ -75,10 +79,11 @@ final class InkTextView: NSTextView {
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
         let wasComposing = hasMarkedText()
         let inserted = (insertString as? String) ?? (insertString as? NSAttributedString)?.string ?? ""
-        let isTyping = !inserted.isEmpty && (wasComposing || inserted.count <= 4)
+        let isTyping = !readingPasteboard && !inserted.isEmpty && (wasComposing || inserted.count <= 4)
         let hasLineBreak = isTyping && inserted.contains(where: \.isNewline)
         let defaultRange = wasComposing ? markedRange() : selectedRange()
         let editRange = replacementRange.location == NSNotFound ? defaultRange : replacementRange
+        let beganAtCaret = wasComposing ? compositionBeganAtCaret : editRange.length == 0
         let previousCaret = isTyping && !hasLineBreak ? insertionRect(at: editRange.location) : nil
         onWillEdit?()
         performingNativeEdit = true
@@ -99,10 +104,50 @@ final class InkTextView: NSTextView {
         if hasLineBreak && inserted.count <= 2 { onStroke?(.carriage) }
         else if inserted == " " { onStroke?(.space) }
         else { onStroke?(.key) }
-        if let previousCaret, !hasMarkedText(), let currentCaret = insertionRect(at: selectedRange().location),
-           currentCaret.midY >= previousCaret.maxY {
+        guard let previousCaret, !hasMarkedText(), let currentCaret = insertionRect(at: selectedRange().location)
+        else { return }
+        if currentCaret.midY >= previousCaret.maxY {
             onStroke?(.carriage)
+        } else if inserted.count == 1, editRange == defaultRange, beganAtCaret {
+            let typed = NSRange(location: editRange.location, length: inserted.utf16.count)
+            if selectedRange() == NSRange(location: NSMaxRange(typed), length: 0), crossedMarginBell(typing: typed) {
+                onStroke?(.bell)
+            }
         }
+    }
+
+    /// TextKit's enclosing rectangles measure actual advances even for a line
+    /// with proportional fonts, hidden Markdown markers, or bidirectional text.
+    private func crossedMarginBell(typing characters: NSRange) -> Bool {
+        guard let layoutManager, let textContainer, let textStorage,
+              NSMaxRange(characters) <= textStorage.length,
+              let font = textStorage.attribute(.font, at: characters.location, effectiveRange: nil) as? NSFont
+        else { return false }
+        var actualCharacters = NSRange()
+        let glyphs = layoutManager.glyphRange(forCharacterRange: characters, actualCharacterRange: &actualCharacters)
+        guard glyphs.length > 0, actualCharacters == characters else { return false }
+        var lineGlyphs = NSRange()
+        let line = layoutManager.lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: &lineGlyphs)
+        let paragraph = textStorage.attribute(.paragraphStyle, at: characters.location, effectiveRange: nil) as? NSParagraphStyle
+        let start = layoutManager.characterIndexForGlyph(at: lineGlyphs.location)
+        let firstLine = start == 0 || (CharacterSet.newlines as NSCharacterSet)
+            .characterIsMember(textStorage.mutableString.character(at: start - 1))
+        let indent = (firstLine ? paragraph?.firstLineHeadIndent : paragraph?.headIndent) ?? 0
+        let width = line.width - 2 * textContainer.lineFragmentPadding - indent
+        let pitch = ("0" as NSString).size(withAttributes: [.font: font]).width
+        // Crossing from eight whole cells remaining to seven triggers the warning.
+        let threshold = width - 8 * pitch
+        guard pitch > 0, threshold >= 0 else { return false }
+        func advance(_ range: NSRange) -> CGFloat {
+            var width: CGFloat = 0
+            layoutManager.enumerateEnclosingRects(forGlyphRange: range,
+                withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: textContainer) { rect, _ in
+                width += rect.width
+            }
+            return width
+        }
+        let before = advance(NSRange(location: lineGlyphs.location, length: glyphs.location - lineGlyphs.location))
+        return before <= threshold && before + advance(glyphs) > threshold
     }
 
     // A zero-length glyph range gives the insertion point in the native
@@ -117,6 +162,13 @@ final class InkTextView: NSTextView {
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        if !hasMarkedText() {
+            // On commit AppKit supplies the provisional range, even when the
+            // composition originally replaced selected text.
+            let selection = self.selectedRange()
+            let original = replacementRange.location == NSNotFound ? selection : replacementRange
+            compositionBeganAtCaret = selection.length == 0 && original == selection
+        }
         onInteraction?()
         (layoutManager as? InkLayoutManager)?.composing = true
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
@@ -227,14 +279,14 @@ final class InkScrollView: NSScrollView {
 
 @MainActor
 struct PaperEditor: NSViewRepresentable {
-    var pageID: UUID
-    var text: String
-    var formatting: [TextFormatRun] = []
+    var page: Page
+    var currentPage: (() -> Page?)? = nil
     var preferences: WritingPreferences
-    var onChange: (String, [TextFormatRun]) -> Void
+    var onChange: (UUID, String, [TextFormatRun]) -> Void
     var onCaret: (CaretPosition) -> Void
     var onStroke: (StrokeKind) -> Void
     var onEmphasisChange: ((TextEmphasis) -> Void)? = nil
+    var onConnect: ((any LetterEditor) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -302,6 +354,7 @@ struct PaperEditor: NSViewRepresentable {
         }
         coordinator.observe()
         coordinator.load(self)
+        onConnect?(coordinator)
         DispatchQueue.main.async {
             editor.window?.makeFirstResponder(editor)
             coordinator.scheduleCaretUpdate()
@@ -314,13 +367,15 @@ struct PaperEditor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        coordinator.commitComposition()
         coordinator.stopObserving()
         coordinator.editor?.delegate = nil
         coordinator.editor?.textStorage?.delegate = nil
+        coordinator.editor = nil
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate, LetterEditor {
         var parent: PaperEditor
         weak var editor: InkTextView?
         weak var scroll: NSScrollView?
@@ -395,35 +450,58 @@ struct PaperEditor: NSViewRepresentable {
             })
         }
 
+        func commitComposition() {
+            guard let editor, editor.hasMarkedText() else { return }
+            editor.unmarkText()
+            editor.inputContext?.discardMarkedText()
+        }
+
         func load(_ newParent: PaperEditor) {
-            if parent.pageID != newParent.pageID || parent.preferences.paperMotion != newParent.preferences.paperMotion
+            if parent.preferences.paperMotion != newParent.preferences.paperMotion
                 || parent.preferences.paperStartPosition != newParent.preferences.paperStartPosition {
                 interruptPaperFeed()
             }
             parent = newParent
+            // SwiftUI may deliver an update after a newer menu action or keystroke.
+            // Read the current model here so an older view cannot reinstall stale writing.
+            if let currentPage = parent.currentPage {
+                if let page = currentPage() { display(page) }
+            } else {
+                display(parent.page)
+            }
+        }
+
+        func display(_ page: Page) {
             guard let editor else { return }
+            let switched = loadedID != page.id
+            if switched {
+                commitComposition()
+                interruptPaperFeed()
+            }
             updating = true
-            let switched = loadedID != parent.pageID
             var textReplaced = false
             if switched {
                 editor.breakUndoCoalescing()
                 editor.undoManager?.removeAllActions()
-                editor.string = parent.text
-                editor.setSelectedRange(NSRange(location: (parent.text as NSString).length, length: 0))
-                loadedID = parent.pageID
-                appliedPreferences = nil
+                editor.string = page.text
+                editor.setSelectedRange(NSRange(location: (page.text as NSString).length, length: 0))
+                loadedID = page.id
                 lastCaret = nil
-            } else if !editor.hasMarkedText() && !editor.string.utf8.elementsEqual(parent.text.utf8) {
+            } else if !editor.hasMarkedText() && !editor.string.utf8.elementsEqual(page.text.utf8) {
                 let selection = editor.selectedRange()
-                editor.string = parent.text
-                editor.setSelectedRange(NSRange(location: min(selection.location, (parent.text as NSString).length), length: 0))
+                editor.string = page.text
+                editor.setSelectedRange(NSRange(location: min(selection.location, (page.text as NSString).length), length: 0))
                 textReplaced = true
             }
-            if switched || textReplaced || (!editor.hasMarkedText() && knownFormatting != parent.formatting) {
-                knownFormatting = parent.formatting
+            if switched || textReplaced || (!editor.hasMarkedText() && knownFormatting != page.formatting) {
+                knownFormatting = page.formatting
                 restoreTypingFromText = true
-                appliedPreferences = nil
                 lastEmphasis = nil
+                // Install the document and its attributes together. An edit arriving before
+                // the next layout pass must see the incoming letter's saved formatting.
+                applyStyle(to: editor)
+                appliedPreferences = parent.preferences
+                viewportSize = nil
             }
             updating = false
             if switched {
@@ -464,9 +542,9 @@ struct PaperEditor: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
-            guard !updating, let editor else { return }
+            guard !updating, let editor, let loadedID else { return }
             knownFormatting = editor.formattingRuns
-            parent.onChange(editor.string, knownFormatting)
+            parent.onChange(loadedID, editor.string, knownFormatting)
             if editor.undoManager?.isUndoing == true || editor.undoManager?.isRedoing == true {
                 // Native undo can restore attributes captured with an earlier desk font.
                 appliedPreferences = nil

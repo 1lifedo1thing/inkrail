@@ -1,0 +1,154 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="./ui/shell.css">
+<link rel="stylesheet" href="./ui/editor.css">
+<div id="surface" style="position:relative;width:700px;height:500px"></div>
+<pre id="result">Pending</pre>
+<script type="module">
+import { mountEditor } from "./ui/editor.js";
+import { exportMarkdown, importMarkdown } from "./ui/markdown.js";
+import { Keys, sampleURL } from "./ui/audio.js";
+import { choices, normalizeSettings } from "./ui/panels.js";
+
+const result = document.querySelector("#result");
+function expect(condition, message) {
+    if (!condition) throw new Error(message);
+}
+try {
+    const initial = {id: "test", text: "Selected writing", formatting: [{location: 0, length: 8, emphasis: 2}]};
+    const edits = [];
+    const surface = document.querySelector("#surface");
+    const strokes = [];
+    const editor = mountEditor(surface, {onChange: page => edits.push(page), onSound: kind => strokes.push(kind)});
+    function paste(type, data) {
+        editor.load(initial);
+        editor.focus();
+        const range = document.createRange();
+        range.selectNodeContents(editor.element);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        const clipboard = new DataTransfer();
+        if (type === "Files") clipboard.items.add(new File(["x"], "image.png", {type: "image/png"}));
+        else clipboard.setData(type, data);
+        const event = new ClipboardEvent("paste", {bubbles: true, cancelable: true, clipboardData: clipboard});
+        editor.element.dispatchEvent(event);
+        expect(event.defaultPrevented, "Browser applied an additional native paste.");
+        return editor.snapshot();
+    }
+    for (const [type, data] of [["Files"], ["text/html", "<img alt=''>"], ["text/plain", ""], ["application/x-inkrail-selection", "{}"]]) {
+        const page = paste(type, data);
+        expect(page.text === initial.text && JSON.stringify(page.formatting) === JSON.stringify(initial.formatting), "Unsupported paste changed the letter.");
+        expect(edits.length === 0 && getSelection().toString() === initial.text, "Unsupported paste changed the selection or autosave state.");
+    }
+    expect(paste("text/plain", "  ").text === "  ", "Lost valid whitespace.");
+    const html = paste("text/html", "<b>rich</b>");
+    expect(html.text === "rich" && html.formatting[0].emphasis === 1, "Lost formatted HTML.");
+    const own = paste("application/x-inkrail-selection", JSON.stringify(initial));
+    expect(own.text === initial.text && own.formatting[0].emphasis === 2, "Lost Inkrail clipboard formatting.");
+    const bold = {text: "Mum types 4*", formatting: [{location: 0, length: 12, emphasis: 1}]};
+    expect(JSON.stringify(importMarkdown(exportMarkdown(bold))) === JSON.stringify(bold), "Markdown round trip changed literal asterisk.");
+
+    function input(inputType, data) {
+        editor.element.dispatchEvent(new InputEvent("beforeinput", {inputType, data, bubbles: true, cancelable: true}));
+    }
+    function readStrokes() { return strokes.splice(0).join(" "); }
+    function loadAtEnd(text) {
+        editor.load({text});
+        editor.focus();
+        const caret = document.createRange();
+        caret.selectNodeContents(editor.element);
+        caret.collapse(false);
+        getSelection().removeAllRanges();
+        getSelection().addRange(caret);
+    }
+    for (const [paperMotion, width, size, wornInk] of [["sheet", 472, 18, false], ["roll", 621, 21, true]]) {
+        surface.style.width = width + "px";
+        editor.applySettings({paperMotion, writingFont: "menlo", fontSize: size, wornInk});
+        loadAtEnd("");
+        readStrokes();
+        const bells = [], returns = [];
+        for (let column = 1; column < 150 && returns.length < 2; column++) {
+            input("insertText", "m");
+            const events = readStrokes();
+            if (events === "key bell") bells.push(column);
+            else if (events === "key carriage") returns.push(column);
+            else expect(events === "key", paperMotion + " unexpected typing events: " + events);
+        }
+        expect(returns.length === 2 && bells.length === 2 && bells.every((column, i) => column + 8 === returns[i]),
+            paperMotion + " expected one bell with seven cells remaining on each row. Bells " + bells + ", returns " + returns);
+        const justBefore = "m".repeat(bells[0] - 1);
+        loadAtEnd(justBefore);
+        input("insertText", " ");
+        expect(readStrokes() === "space bell", "Space did not ring at the margin.");
+        input("deleteContentBackward");
+        expect(readStrokes() === "erase", "Backspace rang the bell.");
+        input("insertText", "m");
+        expect(readStrokes() === "key bell", "Typing across the warning point again did not re-arm the bell.");
+        input("insertParagraph");
+        expect(readStrokes() === "carriage", "Return should have its own sound.");
+        loadAtEnd("Short");
+        input("insertParagraph");
+        expect(readStrokes() === "carriage", "Returning early should only play the carriage.");
+        loadAtEnd(justBefore);
+        editor.element.dispatchEvent(new KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true}));
+        expect(readStrokes() === "key bell", "Tab crossed the margin without warning.");
+        loadAtEnd(justBefore);
+        input("insertReplacementText", "more");
+        editor.command("undo");
+        expect(!readStrokes().includes("bell"), "Replacement or undo rang the bell.");
+        loadAtEnd(justBefore);
+        const clipboard = new DataTransfer();
+        clipboard.setData("text/plain", "m");
+        editor.element.dispatchEvent(new ClipboardEvent("paste", {clipboardData: clipboard, cancelable: true}));
+        expect(!readStrokes(), "A paste at the warning point played a sound.");
+        loadAtEnd(justBefore);
+        editor.element.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+        expect(!readStrokes(), "A provisional composition rang the bell.");
+        editor.element.dispatchEvent(new CompositionEvent("compositionend", {data: "m", bubbles: true}));
+        expect(readStrokes() === "key bell", "A committed composition missed the margin bell.");
+        getSelection().modify("extend", "backward", "character");
+        editor.element.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+        editor.element.dispatchEvent(new CompositionEvent("compositionend", {data: "m", bubbles: true}));
+        expect(readStrokes() === "key", "Replacing selected text by composition rang the margin bell.");
+        loadAtEnd("m".repeat(returns[0] - 1));
+        editor.element.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+        editor.element.dispatchEvent(new CompositionEvent("compositionend", {data: "m", bubbles: true}));
+        expect(readStrokes() === "key carriage", "A committed composition that wraps missed the carriage.");
+    }
+    // Let Chromium lay out eight extra digit cells. The first insertion for
+    // which they wrap gives an independent reference for proportional/bidi text.
+    editor.applySettings({paperMotion: "sheet", writingFont: "georgia", fontSize: 20, wornInk: false});
+    function rowHeight(text) {
+        editor.load({text});
+        return editor.element.firstElementChild.offsetHeight;
+    }
+    for (const [prefix, letter] of [["", "i"], ["", "W"], ["a", "א"], ["א", "m"], ["# ", "m"], ["> ", "m"], ["- ", "m"]]) {
+        const firstRow = rowHeight(prefix + letter);
+        let text = prefix;
+        while (rowHeight(text + letter + "00000000") === firstRow && text.length < 200) text += letter;
+        expect(text.length < 200, "Could not locate the margin in proportional text.");
+        loadAtEnd(text);
+        input("insertText", letter);
+        expect(readStrokes() === "key bell", "Missed proportional or bidirectional warning for " + text + letter);
+    }
+    const machines = ["classic", "soft", "royal", "vintage", "portable", "electric"];
+    expect(choices.typewriterSound.map(machine => machine.id).join() === machines.join(), "Unexpected sound choices.");
+    const keys = new Keys(), samples = [];
+    keys.sound = (name, settings) => samples.push(new URL(sampleURL(settings.typewriterSound, name)).pathname.split("/").pop());
+    for (const [saved, machine] of [...machines.map(id => [id, id]), ["office", "royal"], ["crisp", "vintage"], ["unknown", "classic"]]) {
+        const settings = normalizeSettings({typewriterSound: saved, soundEnabled: false, soundVolume: 0.42, nightMode: true});
+        expect(settings.typewriterSound === machine && !settings.soundEnabled && settings.soundVolume === 0.42 && settings.nightMode,
+            "Settings migration changed a preference for " + saved);
+        const prefix = machine === "classic" ? "" : machine + "-";
+        for (const kind of ["key", "space", "carriage", "erase", "bell"]) keys.play(kind, {...settings, soundEnabled: true});
+        const [key, ...actions] = samples.splice(0);
+        expect([1, 2, 3].some(n => key === prefix + "key-" + n + ".wav"), "Incorrect key bank for " + saved);
+        expect(actions.join() === ["space", "return", "erase", "bell"].map(action => prefix + action + ".wav").join(),
+            "Incorrect action bank for " + saved);
+        expect(sampleURL(saved, "bell") === sampleURL(machine, "bell"), "Legacy sample lookup failed for " + saved);
+    }
+    result.textContent = "PASS";
+} catch (error) {
+    result.textContent = "FAIL " + error.stack;
+}
+</script>

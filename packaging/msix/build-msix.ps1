@@ -51,7 +51,7 @@ if (-not $makeAppx) {
     throw 'Windows SDK x64 MakeAppx.exe not found on runner.'
 }
 
-$work = Join-Path $env:RUNNER_TEMP 'inkrail-msix-work'
+$work = Join-Path $env:RUNNER_TEMP ('inkrail-msix-' + [Guid]::NewGuid().ToString('N'))
 $extractDir = Join-Path $work 'extracted'
 $staging = Join-Path $work 'package'
 $outputDir = Join-Path (Get-Location) 'dist-msix'
@@ -61,7 +61,10 @@ $zipFile = Join-Path $work 'Inkrail-Windows-x64.zip'
 $url = "https://github.com/Aaryanverma/inkrail/releases/download/$ReleaseTag/Inkrail-Windows-x64.zip"
 Write-Host "Downloading Windows build from $url"
 Invoke-WebRequest -Uri $url -OutFile $zipFile
-Expand-Archive -LiteralPath $zipFile -DestinationPath $extractDir -Force
+$portable = Join-Path $outputDir 'Inkrail-Windows-x64.zip'
+& python (Join-Path $PSScriptRoot '../windows/prepare-release.py') $zipFile $portable
+if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the Windows release.' }
+Expand-Archive -LiteralPath $portable -DestinationPath $extractDir
 
 # Preserve the original executable's neighbouring DLLs, HTML/CSS, and assets.
 # Support either a ZIP with a top-level folder or files directly at ZIP root.
@@ -75,6 +78,13 @@ Get-ChildItem -LiteralPath $exe.DirectoryName -Force |
 if (-not (Test-Path (Join-Path $staging 'Inkrail.exe'))) {
     throw 'Inkrail.exe was not copied to the package root.'
 }
+
+# Use the in-box .NET Framework compiler. The launcher recovers previous
+# virtualized libraries before the native writer opens the durable location.
+$csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+$launcher = Join-Path $staging 'InkrailStore.exe'
+& $csc /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll "/out:$launcher" (Join-Path $PSScriptRoot 'StoreLauncher.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Could not compile the Store launcher.' }
 
 # Create real PNG assets from the existing Inkrail app icon in the repository.
 $icon = Join-Path (Get-Location) 'Sources\Inkrail\Resources\AppIcon.png'
@@ -120,13 +130,15 @@ $manifest = @"
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap10 rescap">
+  IgnorableNamespaces="uap uap10 desktop6 rescap">
   <Identity Name="$identityXml" Publisher="$publisherXml" Version="$Version" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Inkrail</DisplayName>
     <PublisherDisplayName>$displayXml</PublisherDisplayName>
     <Logo>MSIXAssets\StoreLogo.png</Logo>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
   </Properties>
   <Resources>
     <Resource Language="en-us" />
@@ -136,9 +148,10 @@ $manifest = @"
   </Dependencies>
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
   <Applications>
-    <Application Id="App" Executable="Inkrail.exe"
+    <Application Id="App" Executable="InkrailStore.exe"
       uap10:RuntimeBehavior="packagedClassicApp" uap10:TrustLevel="mediumIL">
       <uap:VisualElements DisplayName="Inkrail" Description="Offline, typewriter-inspired writing app"
         BackgroundColor="transparent" Square150x150Logo="MSIXAssets\Square150x150Logo.png"

@@ -1,0 +1,15 @@
+<Project>
+  <!-- Ship the notices from the actual packages restored for this host. -->
+  <Target Name="PublishRedistributionNotices" AfterTargets="Publish" Condition="'$(SelfContained)' == 'true'">
+    <ItemGroup>
+      <CorePack Include="@(ResolvedRuntimePack)" Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App'" />
+      <DesktopPack Include="@(ResolvedRuntimePack)" Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.WindowsDesktop.App'" />
+    </ItemGroup>
+    <Copy SourceFiles="$(PkgMicrosoft_Web_WebView2)/LICENSE.txt;$(PkgMicrosoft_Web_WebView2)/NOTICE.txt"
+          DestinationFolder="$(PublishDir)/notices/WebView2" />
+    <Copy SourceFiles="@(CorePack->'%(PackageDirectory)/LICENSE.TXT');@(CorePack->'%(PackageDirectory)/THIRD-PARTY-NOTICES.TXT')"
+          DestinationFolder="$(PublishDir)/notices/DotNet" />
+    <Copy SourceFiles="@(DesktopPack->'%(PackageDirectory)/LICENSE')"
+          DestinationFolder="$(PublishDir)/notices/WindowsDesktop" />
+  </Target>
+</Project>

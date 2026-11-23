@@ -56,8 +56,10 @@ public struct MarkdownShortcut: Equatable, Sendable {
             let unit = text.character(at: i)
             i += 1
             guard Marker(rawValue: unit) != nil || unit == 91 || (importing && unit == 60) else { continue }
-            let isEscaped = escaped(in: text, at: head, since: range.lowerBound)
-            if code == nil, !isEscaped, unit == 91 {
+            // A backslash escapes one character. The rest of the run can
+            // still close a span, as in a bold word ending in a literal '*'.
+            if code == nil, escaped(in: text, at: head, since: range.lowerBound) { continue }
+            if code == nil, unit == 91 {
                 // Keep link labels, image alt text and destinations as source.
                 i = afterBalanced(in: text, from: head, until: range.upperBound, open: 91, close: 93)
                 if i < range.upperBound, text.character(at: i) == 40 {
@@ -65,7 +67,7 @@ public struct MarkdownShortcut: Equatable, Sendable {
                 }
                 continue
             }
-            if importing, code == nil, !isEscaped, unit == 60, i < range.upperBound {
+            if importing, code == nil, unit == 60, i < range.upperBound {
                 let next = text.character(at: i)
                 if next == 47 || (65...90).contains(next) || (97...122).contains(next) {
                     let tail = text.range(of: ">", options: [], range: NSRange(location: i, length: range.upperBound - i))
@@ -88,10 +90,10 @@ public struct MarkdownShortcut: Equatable, Sendable {
             if marker == .backtick {
                 if let open = code {
                     if open.length == token.length { pair(open, token, .code); code = nil }
-                } else if !isEscaped { code = token }
+                } else { code = token }
                 continue
             }
-            guard code == nil, !isEscaped, let style = marker.emphasis(length: token.length) else { continue }
+            guard code == nil, let style = marker.emphasis(length: token.length) else { continue }
             let key = text.substring(with: token)
             let edges = flanking(text, head..<i, marker: marker)
             if edges.canClose, let open = pending[key]?.popLast() { pair(open, token, style) }

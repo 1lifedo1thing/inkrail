@@ -2,16 +2,16 @@ import AVFoundation
 import Foundation
 import InkrailCore
 
-enum StrokeKind { case key, space, carriage, erase, navigation }
+enum StrokeKind { case key, space, carriage, erase, navigation, bell }
 
-/// Original synthesized samples, loaded only when a sound style is needed.
-/// At most six banks of six samples × five voices are retained. Preview
-/// players are separate, bounded to four, and never start without a request.
+/// Recorded and synthesized samples, loaded only when a sound style is needed.
+/// Each style has its own voice pools so a margin bell can ring over a key.
+/// Preview players are separate and only start on request.
 /// No microphone, runtime downloads, or continuous audio engine.
 @MainActor
 final class SoundEngine {
     static let shared = SoundEngine()
-    private static let sampleNames = ["key-1", "key-2", "key-3", "space", "return", "erase"]
+    private static let sampleNames = ["key-1", "key-2", "key-3", "space", "return", "erase", "bell"]
     private final class VoiceBank {
         var voices: [String: [AVAudioPlayer]] = [:]
         var offsets: [String: Int] = [:]
@@ -49,6 +49,7 @@ final class SoundEngine {
         case .space: name = "space"
         case .carriage: name = "return"
         case .erase: name = "erase"
+        case .bell: name = "bell"
         }
         guard let pool = bank.voices[name], !pool.isEmpty else { return false }
         let index = (bank.offsets[name] ?? 0) % pool.count
@@ -59,7 +60,7 @@ final class SoundEngine {
         return player.play()
     }
 
-    /// Explicit, short key/key/space/return preview at the requested volume.
+    /// Explicit, short typing preview ending with the margin bell and return.
     /// The UI must gate this with soundEnabled and call stopAll on mute/style
     /// changes. Dismissing settings calls stopPreview. Cancellation and a
     /// generation check prevent a sleeping task from starting another sample.
@@ -68,27 +69,32 @@ final class SoundEngine {
         stopPreview()
         let gain = safeVolume(volume)
         guard gain > 0 else { return false }
-        for name in ["key-1", "key-2", "space", "return"] {
-            guard let player = makePlayer(sample: name, style: style) else {
+        let steps: [(sample: String, delay: UInt64)] = [
+            ("key-1", 0), ("key-2", 165_000_000), ("space", 185_000_000),
+            ("bell", 225_000_000), ("return", 605_000_000)
+        ]
+        for step in steps {
+            guard let player = makePlayer(sample: step.sample, style: style) else {
                 stopPreview()
                 return false
             }
             player.volume = gain
             previewPlayers.append(player)
         }
+        // Keep the players alive through the final resonance of this machine.
+        let tailDuration = previewPlayers.map(\.duration).max() ?? 0
         let generation = previewGeneration
         previewTask = Task { @MainActor [weak self] in
-            // Intervals, not repeating timers. The whole preview lasts < 1.2s.
-            for (index, delay) in [UInt64(0), 120_000_000, 170_000_000, 240_000_000].enumerated() {
-                if delay > 0 {
-                    do { try await Task.sleep(nanoseconds: delay) } catch { return }
+            for (index, step) in steps.enumerated() {
+                if step.delay > 0 {
+                    do { try await Task.sleep(nanoseconds: step.delay) } catch { return }
                 }
                 guard !Task.isCancelled, let self,
                       self.previewGeneration == generation,
                       self.previewPlayers.indices.contains(index) else { return }
                 self.previewPlayers[index].play()
             }
-            do { try await Task.sleep(nanoseconds: 600_000_000) } catch { return }
+            do { try await Task.sleep(nanoseconds: UInt64(tailDuration * 1_000_000_000)) } catch { return }
             guard !Task.isCancelled, let self, self.previewGeneration == generation else { return }
             self.previewPlayers.removeAll()
             self.previewTask = nil

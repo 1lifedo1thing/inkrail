@@ -19,22 +19,28 @@ private struct SoundCheck {
         precondition(bundle.bundleURL.standardizedFileURL == expected, "Resolved the wrong resource bundle")
         let available = Set((bundle.urls(forResourcesWithExtension: "wav", subdirectory: nil) ?? [])
             .map { $0.lastPathComponent })
+        let samples = ["key-1", "key-2", "key-3", "space", "return", "erase", "bell"]
         let expectedNames = Set(TypewriterSound.allCases.flatMap { style in
-            ["key-1", "key-2", "key-3", "space", "return", "erase"].map { sample in
+            samples.map { sample in
                 "\(style == .classic ? sample : "\(style.rawValue)-\(sample)").wav"
             }
         })
         precondition(available == expectedNames, "Unexpected or missing bundled WAVs")
         var count = 0
         for style in TypewriterSound.allCases {
-            for sample in ["key-1", "key-2", "key-3", "space", "return", "erase"] {
+            for sample in samples {
                 let name = style == .classic ? sample : "\(style.rawValue)-\(sample)"
                 guard let url = bundle.url(forResource: name, withExtension: "wav") else {
                     fatalError("Missing bundled sound: \(name)")
                 }
                 let player = try AVAudioPlayer(contentsOf: url)
                 precondition(player.numberOfChannels == 1, name)
-                let durations = sample == "return" ? 0.25...0.5 : 0.045...0.18
+                let durations: ClosedRange<TimeInterval>
+                switch sample {
+                case "return": durations = 0.22...1.20
+                case "bell": durations = 0.30...1.20
+                default: durations = 0.035...0.35
+                }
                 precondition(durations.contains(player.duration), name)
                 let file = try AVAudioFile(forReading: url)
                 precondition(file.processingFormat.sampleRate == 44_100, name)
@@ -52,25 +58,23 @@ private struct SoundCheck {
                 count += 1
             }
         }
-        precondition(count == 36, "Expected all six complete sound profiles")
-        print("PASS \(count)/36 sounds: production \(CommandLine.arguments[2]) bundle lookup, AVAudioPlayer load, full AVAudioFile decode.")
+        precondition(count == expectedNames.count, "Expected all six complete sound profiles")
+        print("PASS \(count) sounds: production \(CommandLine.arguments[2]) bundle lookup, AVAudioPlayer load, full AVAudioFile decode.")
         print("Playback and audio-device preparation were not requested; this is not a listening test.")
     }
 
     static func checkSoundPreferences() throws {
         let sounds: [(TypewriterSound, String)] = [
-            (.classic, "classic"), (.soft, "soft"), (.crisp, "crisp"),
-            (.portable, "portable"), (.office, "office"), (.electric, "electric")
+            (.classic, "classic"), (.soft, "soft"), (.royal, "royal"),
+            (.vintage, "vintage"), (.portable, "portable"), (.electric, "electric")
         ]
         precondition(Set(TypewriterSound.allCases) == Set(sounds.map { $0.0 }), "Sound choices changed")
-        for (sound, identifier) in sounds {
-            precondition(sound.rawValue == identifier, "Persisted sound identifier changed")
+        for (sound, identifier) in sounds + [(.royal, "office"), (.vintage, "crisp")] {
             let literal = Data("\"\(identifier)\"".utf8)
             let decoded = try JSONDecoder().decode(TypewriterSound.self, from: literal)
-            let encoded = try JSONEncoder().encode(sound)
-            precondition(decoded == sound && encoded == literal, "Sound identifier does not persist")
-            // A pre-expansion record for the original sounds, and the same
-            // stored preference schema for the additions. No UserDefaults I/O.
+            let encoded = try JSONEncoder().encode(decoded)
+            precondition(decoded == sound && encoded == Data("\"\(sound.rawValue)\"".utf8),
+                         "Sound identifier failed to resolve or save: \(identifier)")
             let record = """
             {"typewriterSound":"\(identifier)","soundEnabled":false,"soundVolume":0.17,
              "paper":"cream","paperMotion":"roll","paperStartPosition":"bottom",
@@ -113,6 +117,6 @@ private struct SoundCheck {
             expected.lampWarmth = 0.12
             precondition(preferences == expected, "Sound fallback reset unrelated preferences")
         }
-        print("PASS six stable sound IDs, literal saved preferences, and missing/null/removed/unknown fallback; mute, volume and unrelated values preserved.")
+        print("PASS six machine IDs, Office and Crisp migration, preference round trips and fallback.")
     }
 }

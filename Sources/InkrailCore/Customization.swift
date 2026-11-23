@@ -88,22 +88,26 @@ public enum WritingFont: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 public enum TypewriterSound: String, Codable, CaseIterable, Identifiable, Sendable {
-    case classic, soft, crisp, portable, office, electric
+    case classic, soft, royal, vintage, portable, electric
 
     public var id: String { rawValue }
     public var label: String { rawValue.capitalized }
     public var subtitle: String {
         switch self {
-        case .classic: return "The original mechanical keys"
-        case .soft: return "A quieter, softer touch"
-        case .crisp: return "A bright, distinct strike"
-        case .portable: return "Light, lively mechanical clatter"
-        case .office: return "Weighty keys and a ringing bell"
-        case .electric: return "A quick, precise powered snap"
+        case .classic: return "Loud Hermes Precisa 305 manual clacks"
+        case .soft: return "Damped Hermes 3000 keys"
+        case .royal: return "Royal Quiet De Luxe keys and carriage"
+        case .vintage: return "Clatter from a 1930s manual"
+        case .portable: return "Hermes Baby keys and carriage"
+        case .electric: return "Powered IBM Selectric II strikes"
         }
     }
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)
-        self = Self(rawValue: value) ?? .classic
+        switch value {
+        case "office": self = .royal
+        case "crisp": self = .vintage
+        default: self = Self(rawValue: value) ?? .classic
+        }
     }
 }
