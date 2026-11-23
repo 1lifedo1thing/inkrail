@@ -194,11 +194,12 @@ private struct EmbossingMotif: Shape {
     }
 
     private func flower(_ p: inout Path, center: CGPoint, radius: CGFloat) {
+        let petalSize = CGSize(width: radius * 1.20, height: radius * 1.30)
         for petal in 0..<5 {
-            let angle = Double(petal) * .pi * 2 / 5 - .pi / 2
-            p.addEllipse(in: CGRect(x: center.x + cos(angle) * radius - radius * 0.60,
-                                   y: center.y + sin(angle) * radius - radius * 0.65,
-                                   width: radius * 1.20, height: radius * 1.30))
+            let angle = CGFloat(petal) * .pi * 2 / 5 - .pi / 2
+            let x = center.x + cos(angle) * radius - petalSize.width / 2
+            let y = center.y + sin(angle) * radius - petalSize.height / 2
+            p.addEllipse(in: CGRect(origin: CGPoint(x: x, y: y), size: petalSize))
         }
         p.addEllipse(in: CGRect(x: center.x - 1.4, y: center.y - 1.4, width: 2.8, height: 2.8))
     }

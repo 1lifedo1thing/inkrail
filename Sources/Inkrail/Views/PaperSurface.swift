@@ -332,12 +332,14 @@ struct MarginGarden: View {
                 var stem = Path()
                 stem.move(to: CGPoint(x: edge, y: 32))
                 for i in 1...28 {
-                    stem.addLine(to: CGPoint(x: edge + sin(Double(i) * 0.8) * 7, y: CGFloat(i) * size.height / 28))
+                    let x = edge + sin(CGFloat(i) * 0.8) * 7
+                    let y = CGFloat(i) * size.height / 28
+                    stem.addLine(to: CGPoint(x: x, y: y))
                 }
                 context.stroke(stem, with: .color(Color(hex: 0x65724B).opacity(0.65)), lineWidth: 1.1)
                 for i in 1...25 {
                     let y = CGFloat(i) * (size.height - 30) / 26 + 13
-                    let x = edge + sin(Double(i) * 0.8) * 7
+                    let x = edge + sin(CGFloat(i) * 0.8) * 7
                     let length: CGFloat = 12 + CGFloat(i % 4) * 2
                     let direction = i % 2 == 0 ? sign : -sign * 0.55
                     var leaf = Path()
@@ -348,7 +350,7 @@ struct MarginGarden: View {
                     if i % 6 == 2 {
                         let flowerX = x + sign * 15
                         for petal in 0..<5 {
-                            let angle = Double(petal) * .pi * 2 / 5
+                            let angle = CGFloat(petal) * .pi * 2 / 5
                             let rect = CGRect(x: flowerX + cos(angle) * 4 - 3, y: y + sin(angle) * 4 - 3, width: 6, height: 7)
                             context.fill(Path(ellipseIn: rect), with: .color(Color(hex: side == 0 ? 0xA99BB2 : 0xDFD9BD)))
                         }
