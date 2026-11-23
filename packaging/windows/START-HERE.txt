@@ -11,6 +11,7 @@ Paper, ink, and a little room to write.
 At your desk:
   Ctrl+N                 New letter
   Ctrl+Shift+O           Letter box (search, rename, trash and restore)
+  F2 in the letter box   Rename the focused letter
   Ctrl+,                 Make it yours
   Ctrl+B / I / U         Bold / italic / underline
   Ctrl+\                 Clear inline formatting
@@ -20,24 +21,27 @@ At your desk:
   Ctrl+O                 Import text or Markdown
   Ctrl+S                 Save now (writing also autosaves)
   Ctrl+Shift+E           Export text
-  Alt+F or the top …     File menu, including Export Markdown
+  Alt+F or the top …     Open the file and writing menu
+
+Choose Export Markdown… from the Alt+F menu to keep the letter’s formatting
+for import on another computer. Choose Export text… for a plain-text copy.
 
 Libraries:
-  Default letters: %APPDATA%\Inkrail\Library\Letters
+  Default library: %APPDATA%\Inkrail\Library
   Preferences:    %APPDATA%\Inkrail\preferences.json
   WebView2 cache: %LOCALAPPDATA%\Inkrail\WebView2
 
 To move your current Windows library, use Make it yours > Storage > Change
-location and select an empty folder. Inkrail copies and verifies the library;
-your old copy remains in place. Deleted letters are restorable for 30 days.
+location and select an empty folder. Inkrail copies and verifies the library.
+Your old copy remains in place. Deleted letters are restorable for 30 days.
 When storage is unavailable, export a copy before quitting. Keep independent
-backups; do not point multiple running copies of Inkrail at the same folder.
+backups and use one running copy of Inkrail per library.
 
-To bring over a Mac library, first back it up. With Inkrail closed on both
-computers, copy the entire library (Letters, Recently Deleted, and Recovery
-if present) into a NEW/EMPTY Windows library folder at the default path
-above, before first launch. Do not merge, overwrite an existing collection,
-or copy per-machine preferences. For individual letters, use Markdown.
+To bring over a Mac library before first launch on Windows, close Inkrail on
+both computers and back up the Mac library. Copy its contents into a new or
+empty %APPDATA%\Inkrail\Library folder. Check that Letters, Recently Deleted
+and Recovery (if present) sit directly inside Library. If you already have
+letters on Windows, use Markdown export and import to transfer individual letters.
 
 Optional native smoke test:
   Close the test copy of Inkrail. From PowerShell in this extracted folder,
