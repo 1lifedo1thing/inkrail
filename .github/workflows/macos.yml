@@ -1,20 +1,144 @@
-name: Native macOS build
+name: Build and release Inkrail
+
 on:
   push:
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   macos:
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Test storage and models
         run: swift test
+      - name: Check autosave, recovery and native editing
+        run: |
+          bash scripts/check-storage-model.sh
+          bash scripts/check-library-location.sh
+          bash scripts/check-trash-retention.sh
+          bash scripts/check-paper-feed.sh
+      - name: Check paper, ink, machines and desk customization
+        run: |
+          bash scripts/check-customization.sh
+          bash scripts/check-ink-rendering.sh
+          bash scripts/check-machine-styles.sh
+          bash scripts/check-desk-preferences.sh
+          bash scripts/check-night-lamp.sh
       - name: Build native app
         run: bash scripts/build-app.sh
+      - name: Check typewriter samples in the app bundle
+        run: |
+          python3 scripts/check-sounds.py
+          bash scripts/check-sounds-native.sh
       - name: Archive app, preserving bundle metadata
-        run: ditto -c -k --sequesterRsrc --keepParent dist/Inkrail.app dist/Inkrail-macOS.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Inkrail.app dist/Inkrail.zip
       - uses: actions/upload-artifact@v4
         with:
           name: Inkrail-macOS
-          path: dist/Inkrail-macOS.zip
+          path: dist/Inkrail.zip
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2025
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test Windows library storage and upgrades
+        run: dotnet run --project packaging/windows/tests/StorageChecks.csproj --configuration Release
+      - name: Build native host and portable ZIP
+        shell: pwsh
+        run: |
+          dotnet publish packaging/windows/host/Inkrail.csproj -c Release -r "win-$env:ARCH" --self-contained true -o .build/windows-host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python packaging/windows/build-zip.py --arch $env:ARCH --host-dir .build/windows-host --output "dist/Inkrail-Windows-$env:ARCH.zip"
+      - name: Ensure WebView2 is available for the native smoke test
+        shell: pwsh
+        run: |
+          $key = 'Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          foreach ($root in 'HKLM:\SOFTWARE\WOW6432Node', 'HKCU:\SOFTWARE') {
+            $version = Get-ItemPropertyValue (Join-Path $root $key) -Name pv -ErrorAction SilentlyContinue
+            if ($version -and [version]$version -gt [version]'0.0.0.0') { return }
+          }
+          $installer = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
+          $setup = Start-Process $installer -ArgumentList '/silent', '/install' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "WebView2 installer exited with $($setup.ExitCode)." }
+      - name: Test writing, saving and reopening in the packaged app
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          Expand-Archive "dist/Inkrail-Windows-$env:ARCH.zip" -DestinationPath .build/test
+          & "./.build/test/Inkrail-Windows-$env:ARCH/Check-Inkrail.ps1"
+      - name: Test packaged editor, Markdown, clipboard and sounds
+        shell: pwsh
+        timeout-minutes: 3
+        run: ./packaging/windows/check-packaged-editor.ps1 -Archive "dist/Inkrail-Windows-$env:ARCH.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Inkrail-Windows-${{ matrix.arch }}
+          path: dist/Inkrail-Windows-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  verify:
+    name: Verify all three ZIPs
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Inkrail-*
+          path: archives
+          merge-multiple: true
+      - run: python3 scripts/check-release-zips.py archives
+
+  release:
+    name: Attach ZIPs to the tagged release
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-inkrail-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Inkrail-*
+          path: archives
+          merge-multiple: true
+      - name: Publish ZIPs as release assets
+        working-directory: archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          assets=(Inkrail.zip Inkrail-Windows-x64.zip Inkrail-Windows-arm64.zip)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" --verify-tag --generate-notes
+          fi

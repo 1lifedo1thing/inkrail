@@ -1,30 +1,6 @@
 import AppKit
 import InkrailCore
 
-// AppModel's injected preferences exercise its real persistence keys without
-// touching UserDefaults.standard or writing a test suite to the user's Library.
-final class MemoryDefaults: UserDefaults {
-    var values: [String: Any]
-    init(values: [String: Any] = [:]) {
-        self.values = values
-        super.init(suiteName: "Inkrail.StorageModelCheck.\(UUID().uuidString)")!
-    }
-    override func string(forKey key: String) -> String? { values[key] as? String }
-    override func data(forKey key: String) -> Data? { values[key] as? Data }
-    override func set(_ value: Any?, forKey key: String) { values[key] = value }
-}
-
-@MainActor final class SoundEngine {
-    static let shared = SoundEngine()
-    func stopAll() {}
-}
-
-@MainActor enum TextExport {
-    static func save(_ page: Page, markdown: Bool) throws {
-        fatalError("The storage fixture must not open an export panel")
-    }
-}
-
 @MainActor final class StorageFixtureClock {
     var now: Date
     init(_ now: Date) { self.now = now }
@@ -177,6 +153,19 @@ final class MemoryDefaults: UserDefaults {
         let imported = Page(markdown: original.markdownText)
         check(imported.text == original.text && imported.formatting == original.formatting,
               "exported intraword underline, combined emphasis, escaped punctuation and backticks round trip")
+
+        let endings: [(String, TextEmphasis)] = [
+            ("Mum types 4*", .bold), ("two stars**", .italic), ("ends in ~~", .strikethrough),
+            (#"literal \*"#, .bold), (#"ends in \"#, .code)
+        ]
+        for (body, emphasis) in endings {
+            let styled = Page(text: body, formatting: [
+                TextFormatRun(location: 0, length: body.utf16.count, emphasis: emphasis)
+            ])
+            let reopened = Page(markdown: styled.markdownText)
+            check(reopened.text == body && reopened.formatting == styled.formatting,
+                  "a closing delimiter next to literal punctuation preserves the text and style of \(body)")
+        }
     }
 
     static func formattingSurvivesRestart(in temporary: URL) throws {
@@ -195,14 +184,14 @@ final class MemoryDefaults: UserDefaults {
 
         let pen = TextFormatRun(location: 1, length: 2, emphasis: [.bold, .italic])
         let word = TextFormatRun(location: 4, length: 6, emphasis: .underline)
-        model.edit(words, formatting: [pen, word])
+        model.edit(model.selectedID!, text: words, formatting: [pen, word])
         check(model.isDirty && model.flush(), "an emphasis-only edit is saved")
         let reopened = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
         check(reopened.currentText == words && reopened.selectedPage?.formatting == [pen, word],
               "combined emphasis, UTF-16 ranges and plain words survive a restart")
-        reopened.edit(words, formatting: [pen, word])
+        reopened.edit(reopened.selectedID!, text: words, formatting: [pen, word])
         check(!reopened.isDirty, "identical words and emphasis retain the saved state")
-        reopened.edit(words, formatting: [])
+        reopened.edit(reopened.selectedID!, text: words, formatting: [])
         check(reopened.isDirty && reopened.flush(), "clearing emphasis is saved")
         let cleared = try repository.load().pages.first { $0.id == model.selectedID }
         check(cleared?.formatting == [], "reopening restores cleared emphasis")
@@ -232,7 +221,7 @@ final class MemoryDefaults: UserDefaults {
         let model = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
         check(model.selectedPage?.title == "Dear Mum," && model.selectedPage?.privateTitle == nil,
               "letters saved before private titles use their opening line")
-        model.edit(model.currentText, formatting: [TextFormatRun(location: 0, length: 4, emphasis: .bold)])
+        model.edit(model.selectedID!, text: model.currentText, formatting: [TextFormatRun(location: 0, length: 4, emphasis: .bold)])
         let original = model.selectedPage!
         model.createPage(text: "Another letter")
         let activeID = model.selectedID
@@ -255,7 +244,7 @@ final class MemoryDefaults: UserDefaults {
         check(reopened.deletedPages().first { $0.id == id }?.title == title, "Recently Deleted shows the private title")
         reopened.restore(id)
         reopened.select(id)
-        reopened.edit("A new opening")
+        reopened.edit(reopened.selectedID!, text: "A new opening")
         check(reopened.selectedPage?.title == title, "the restored title stays attached when the opening line is edited")
         reopened.rename(id, to: " \t ")
         check(reopened.flush(), "clearing the private title saves")
@@ -274,7 +263,7 @@ final class MemoryDefaults: UserDefaults {
         check(defaults.string(forKey: locationKey) == nil, "startup does not invent a custom path")
         check(model.pages.count == 1, "first launch creates welcome letter")
         let id = model.selectedID!
-        model.edit("First saved version")
+        model.edit(model.selectedID!, text: "First saved version")
         check(model.flush(), "initial edit saves")
         model.createPage(text: "A deleted letter")
         let deletedID = model.selectedID!
@@ -288,7 +277,7 @@ final class MemoryDefaults: UserDefaults {
         try fm.createDirectory(at: recovery, withIntermediateDirectories: false)
         let recoveryBytes = Data("preserved damaged bytes".utf8)
         try recoveryBytes.write(to: recovery.appendingPathComponent("original.damaged"))
-        model.edit("Latest unsaved writing before the move\nनमस्ते 世界")
+        model.edit(model.selectedID!, text: "Latest unsaved writing before the move\nनमस्ते 世界")
         check(model.isDirty, "pending edits exist before relocation")
         let latestText = model.currentText
         check(model.changeStorageLocation(to: newRoot), "relocation succeeds")
@@ -311,7 +300,7 @@ final class MemoryDefaults: UserDefaults {
         let copiedRecovery = try Data(contentsOf: newRoot.appendingPathComponent("Recovery/original.damaged"))
         check(copiedRecovery == recoveryBytes, "recovery bytes survive relocation")
 
-        model.edit("Writing after the move")
+        model.edit(model.selectedID!, text: "Writing after the move")
         check(model.flush(), "future saves succeed")
         let originalAfterEdit = try original.load()
         let copiedAfterEdit = try copied.load()
@@ -346,7 +335,7 @@ final class MemoryDefaults: UserDefaults {
         let markerBytes = try Data(contentsOf: marker)
         check(markerBytes == Data("Keep me".utf8), "existing destination data is untouched")
         check(reopened.storageMessage?.contains("not changed") == true, "failure is reported")
-        reopened.edit("Still writing to custom library")
+        reopened.edit(reopened.selectedID!, text: "Still writing to custom library")
         check(reopened.flush(), "current repository still saves after refusal")
         let reportAfterRefusal = try copied.load()
         check(reportAfterRefusal.pages.first(where: { $0.id == id })?.text == reopened.currentText, "failed change retains repository")
@@ -365,7 +354,7 @@ final class MemoryDefaults: UserDefaults {
         check(!fm.fileExists(atPath: fallback.path), "missing custom path does not fall back")
         check(model.errorMessage?.contains(missing.path) == true, "startup error identifies missing path")
         check(defaults.string(forKey: locationKey) == missing.path, "startup failure retains preference")
-        model.edit("Unsaved emergency writing")
+        model.edit(model.selectedID!, text: "Unsaved emergency writing")
         check(model.isDirty, "writing while unavailable stays dirty")
         check(!model.flush(), "unavailable storage does not report successful save")
         check(model.currentText == "Unsaved emergency writing", "unsaved text remains in memory")
@@ -390,7 +379,7 @@ final class MemoryDefaults: UserDefaults {
         let preserved = source.appendingPathComponent("Preserved Letters")
         try fm.moveItem(at: letters, to: preserved)
         try Data("A file blocks the Letters directory".utf8).write(to: letters)
-        model.edit("This pending edit must not be lost")
+        model.edit(model.selectedID!, text: "This pending edit must not be lost")
         let destination = temporary.appendingPathComponent("Must not copy after save failure")
         check(!model.changeStorageLocation(to: destination), "failed pending save aborts location change")
         check(model.rootURL == source, "save failure keeps root")
@@ -485,7 +474,7 @@ final class MemoryDefaults: UserDefaults {
         let model = AppModel(defaults: MemoryDefaults(), defaultRootURL: root,
                              schedulesAutosave: false, nowProvider: { clock.now })
         let id = model.selectedID!
-        model.edit("Restore this writing")
+        model.edit(model.selectedID!, text: "Restore this writing")
         check(model.flush(), "restorable writing is saved")
         let savedReport = try PageRepository(rootURL: root).load()
         let originalModifiedAt = savedReport.pages.first(where: { $0.id == id })!.modifiedAt

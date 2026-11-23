@@ -250,7 +250,7 @@ struct StudioSettingsView: View {
 
     private var soundSettings: some View {
         Group {
-            card("Typewriter sounds", subtitle: "Give every keystroke its own character.") {
+            card("Typewriter sounds", subtitle: "The margin bell rings about seven character widths before the end of the line.") {
                 toggle("Mechanical sounds", isOn: $preferences.soundEnabled)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                     ForEach(TypewriterSound.allCases, id: \.self) { sound in
@@ -269,7 +269,7 @@ struct StudioSettingsView: View {
                     .disabled(!preferences.soundEnabled || preferences.soundVolume == 0)
                     .controlSize(.large)
                     Spacer()
-                    Text("A few keys and a carriage return")
+                    Text("Keys, space bar, bell and return")
                         .font(.system(size: 11)).foregroundColor(DeskPalette.mutedInk)
                 }
             }

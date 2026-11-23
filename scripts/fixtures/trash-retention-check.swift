@@ -10,7 +10,30 @@ private final class FailingRemoval: FileManager, @unchecked Sendable {
 
 private final class FailingMove: FileManager, @unchecked Sendable {
     override func moveItem(at source: URL, to destination: URL) throws {
-        throw CocoaError(.fileWriteNoPermission)
+        if source.pathExtension == "json" { throw CocoaError(.fileWriteNoPermission) }
+        try super.moveItem(at: source, to: destination)
+    }
+}
+
+private final class StorageFailure: FileManager, @unchecked Sendable {
+    var unreadable: URL?
+    var blockedMove: URL?
+    var failInstallationOf: URL?
+
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        if let unreadable, URL(fileURLWithPath: path).resolvingSymlinksInPath().path == unreadable.resolvingSymlinksInPath().path {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        if path == failInstallationOf?.path, let folder = failInstallationOf?.deletingLastPathComponent(),
+           try FileManager.default.contentsOfDirectory(atPath: folder.path).contains(where: { $0.hasSuffix(".pending") }) {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        return try super.attributesOfItem(atPath: path)
+    }
+
+    override func moveItem(at source: URL, to destination: URL) throws {
+        if source == blockedMove { throw CocoaError(.fileWriteNoPermission) }
+        try super.moveItem(at: source, to: destination)
     }
 }
 
@@ -56,6 +79,10 @@ private final class FailingMove: FileManager, @unchecked Sendable {
         try unsafeEntries(base.appendingPathComponent("Unsafe"))
         try failedRemovalAndRetry(base.appendingPathComponent("Retry"))
         try failedTimestamp(base.appendingPathComponent("Timestamp"))
+        try revisionsAndRecovery(base.appendingPathComponent("Revisions"))
+        try pairedTransfers(base.appendingPathComponent("Transfer"))
+        try interruptedTransfers(base.appendingPathComponent("Restart"))
+        try legacySplits(base.appendingPathComponent("Upgraded library"))
         try copiedLibrary(base.appendingPathComponent("Copy"))
         print("PASS: \(checks)/\(checks) Foundation trash-retention checks. Disposable libraries and fixed times only; no user files or real clock waiting.")
     }
@@ -313,6 +340,131 @@ private final class FailingMove: FileManager, @unchecked Sendable {
         _ = try failedMoveRepo.cleanupRecentlyDeleted(now: now.addingTimeInterval(duration))
         try check(try Data(contentsOf: failedMoveRepo.fileURL(for: failedMove.id)) == before, "stale receipt from failed move cannot remove active letter")
         try check(exists(failedMoveRepo.fileURL(for: failedMove.id).appendingPathExtension("bak")), "failed-move receipt cannot remove active backup")
+    }
+
+    static func revisionsAndRecovery(_ root: URL) throws {
+        let failure = StorageFailure()
+        let repo = try PageRepository(rootURL: root, fileManager: failure)
+        var stale = try makeLetter(repo)
+        let path = repo.fileURL(for: stale.id)
+        let other = try PageRepository(rootURL: root)
+        var external = try other.load().pages[0]
+        external.text = "Restored externally"
+        try other.save(external)
+        stale.text = "Pending local edits"
+        let primaryBytes = try Data(contentsOf: path)
+        let backup = path.appendingPathExtension("bak")
+        let backupBytes = try Data(contentsOf: backup)
+        for _ in 0..<2 { try rejects("stale saves reject the cached edit") { try repo.save(stale) } }
+        try check(try Data(contentsOf: path) == primaryBytes, "external primary survives all retries")
+        try check(try Data(contentsOf: backup) == backupBytes, "conflict does not rotate the backup")
+        let relocated = try repo.copyLibrary(to: root.deletingLastPathComponent().appendingPathComponent("Revision copy"))
+        try rejects("relocation retains the user's observed revision") { try relocated.save(stale) }
+
+        failure.unreadable = path
+        var fallback = try repo.load().pages[0]
+        try check(fallback.text != external.text, "temporarily unreadable primary offers the earlier backup")
+        failure.unreadable = nil
+        fallback.text += "edited"
+        try rejects("regained read permission must not overwrite a newer saved revision") { try repo.save(fallback) }
+        try check(try Data(contentsOf: path) == primaryBytes, "newer primary remains after transient read failure")
+
+        let damaged = Data("damaged before saving".utf8)
+        try damaged.write(to: path)
+        var recovered = try repo.load().pages[0]
+        recovered.text += " recover"
+        failure.failInstallationOf = path
+        for _ in 0..<3 {
+            try rejects("an interrupted save retains pending writing") { try repo.save(recovered) }
+        }
+        try check(try Data(contentsOf: path) == damaged, "failed saves preserve the original damaged primary")
+        failure.failInstallationOf = nil
+        try repo.save(recovered)
+        let recovery = root.appendingPathComponent("Recovery")
+        let copies = try fm.contentsOfDirectory(at: recovery, includingPropertiesForKeys: nil)
+        try check(copies.count == 1, "recovery saves deduplicate the same damaged bytes")
+        try check(try Data(contentsOf: copies[0]) == damaged, "recovery retains the exact damaged bytes")
+        try fm.removeItem(at: repo.trashURL)
+        recovered.text += " after trash was removed"
+        try repo.save(recovered)
+        try check(try repo.load().pages.first?.text == recovered.text, "missing trash alone cannot prevent saving active writing")
+        try check(exists(repo.trashURL), "saving repairs a missing trash folder in a writable library")
+    }
+
+    static func pairedTransfers(_ root: URL) throws {
+        let failure = StorageFailure()
+        let repo = try PageRepository(rootURL: root, fileManager: failure)
+        let page = try makeLetter(repo)
+        let active = repo.fileURL(for: page.id)
+        let trash = repo.fileURL(for: page.id, inTrash: true)
+        let previous = try Data(contentsOf: active.appendingPathExtension("bak"))
+        failure.blockedMove = active.appendingPathExtension("bak")
+        try rejects("backup move failure aborts deletion") { try repo.moveToTrash(page.id, at: now) }
+        try check(exists(active) && !exists(trash), "failed deletion leaves the primary active")
+        try check(exists(active.appendingPathExtension("bak")), "failed deletion retains the active backup")
+        failure.blockedMove = nil
+        try repo.moveToTrash(page.id, at: now)
+        try Data("damaged deleted current".utf8).write(to: trash)
+        let backup = trash.appendingPathExtension("bak")
+        failure.blockedMove = backup
+        try rejects("failed restore preserves the recoverable letter for another attempt") { try repo.restore(page.id) }
+        try check(!exists(active) && exists(trash) && exists(backup), "failed restore keeps the complete pair in trash")
+        try check(exists(receipt(repo, page.id)), "failed restore keeps the deadline")
+        failure.blockedMove = nil
+        let restored = try repo.restore(page.id)
+        try check(try Data(contentsOf: active) == previous, "restore publishes a readable primary from its good backup")
+        try check(restored.id == page.id && !exists(backup), "restore returns the readable letter")
+        try fm.removeItem(at: active)
+        try check(try repo.load().pages.first?.id == page.id, "active backup-only letter can be opened")
+        try repo.moveToTrash(page.id, at: now)
+        try fm.removeItem(at: trash)
+        try check(try repo.load(inTrash: true).pages.first?.id == page.id, "deleted backup-only letter can be opened")
+        try repo.restore(page.id)
+        try check(try Data(contentsOf: active) == previous, "deleted backup-only letter restores normally")
+    }
+
+    static func interruptedTransfers(_ root: URL) throws {
+        let repo = try PageRepository(rootURL: root)
+        let letter = try makeLetter(repo)
+        let active = repo.fileURL(for: letter.id)
+        let trash = repo.fileURL(for: letter.id, inTrash: true)
+        let marker = repo.trashURL.appendingPathComponent(letter.id.uuidString + ".transfer")
+        try writeReceipt(repo, letter.id, at: now)
+        try Data("trash-v1".utf8).write(to: marker)
+        try fm.moveItem(at: active.appendingPathExtension("bak"), to: trash.appendingPathExtension("bak"))
+        let reopened = try PageRepository(rootURL: root)
+        _ = try reopened.cleanupRecentlyDeleted(now: now.addingTimeInterval(duration))
+        try check(exists(active.appendingPathExtension("bak")) && !exists(marker), "cleanup rolls back an interrupted deletion before the deadline can purge the backup")
+        try reopened.moveToTrash(letter.id, at: now)
+        try Data("restore-v1".utf8).write(to: marker)
+        try fm.moveItem(at: trash.appendingPathExtension("bak"), to: active.appendingPathExtension("bak"))
+        try check(try reopened.load().pages.isEmpty, "an interrupted restore never exposes a partly moved earlier version as an active letter")
+        try check(exists(trash.appendingPathExtension("bak")) && !exists(marker), "reopening rolls back the incomplete restore")
+    }
+
+    static func legacySplits(_ root: URL) throws {
+        let repo = try PageRepository(rootURL: root)
+        let letter = try makeLetter(repo)
+        let active = repo.fileURL(for: letter.id)
+        let backup = active.appendingPathExtension("bak")
+        let trash = repo.fileURL(for: letter.id, inTrash: true)
+        let deletedBackup = trash.appendingPathExtension("bak")
+        try repo.moveToTrash(letter.id, at: now)
+        try fm.moveItem(at: deletedBackup, to: backup)
+        try check(try repo.load().pages.isEmpty, "legacy deletion does not resurrect its stranded active backup")
+        try check(!exists(backup) && exists(deletedBackup), "a matching older backup rejoins its deleted letter")
+        _ = try repo.cleanupRecentlyDeleted(now: now.addingTimeInterval(duration))
+        try check(!exists(deletedBackup) && !exists(trash), "legacy deleted pair expires together")
+
+        let damaged = try makeLetter(repo)
+        let activeDamaged = repo.fileURL(for: damaged.id)
+        let trashedDamaged = repo.fileURL(for: damaged.id, inTrash: true)
+        try repo.moveToTrash(damaged.id, at: now)
+        try Data("broken".utf8).write(to: trashedDamaged)
+        try fm.moveItem(at: trashedDamaged, to: activeDamaged)
+        _ = try repo.cleanupRecentlyDeleted(now: now.addingTimeInterval(duration))
+        try check(try repo.load().pages.first?.id == damaged.id, "expiry protects the only readable copy left by an old failed restore")
+        try check(exists(activeDamaged.appendingPathExtension("bak")), "recovered backup belongs to the active library")
     }
 
     static func copiedLibrary(_ root: URL) throws {

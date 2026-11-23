@@ -1,0 +1,45 @@
+@font-face {
+  font-family: "Inkrail Courier Prime";
+  src: url("./assets/fonts/CourierPrime-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inkrail Courier Prime";
+  src: url("./assets/fonts/CourierPrime-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inkrail Courier Prime";
+  src: url("./assets/fonts/CourierPrime-Italic.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inkrail Courier Prime";
+  src: url("./assets/fonts/CourierPrime-BoldItalic.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+}
+
+.ink-editor-scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:none;overflow-anchor:none;z-index:1}
+.ink-editor-scroll::-webkit-scrollbar{display:none}
+.ink-editor{position:relative;box-sizing:border-box;min-height:100%;outline:none;padding-inline:min(var(--ink-margins,76px),15%);font-family:var(--ink-font,monospace);font-size:var(--ink-font-size,20px);font-weight:var(--ink-weight,400);line-height:1.54;font-variant-ligatures:none;color:var(--ink-color,#292b26);caret-color:rgb(var(--ink-tint,41 43 38)/.48);white-space:pre-wrap;overflow-wrap:break-word;tab-size:4;text-rendering:optimizeSpeed;cursor:text;text-align:start}
+.ink-editor ::selection,.ink-editor::selection{background:#8c967047}
+.ink-line{transform-origin:center top;min-height:1.54em;unicode-bidi:plaintext}
+.ink-line.ink-block-heading{font-size:calc(var(--ink-font-size,20px) * var(--heading-scale));font-weight:700;padding-block:calc(var(--ink-font-size,20px) * .30) calc(var(--ink-font-size,20px) * .20)}
+.ink-heading-marker{display:inline-block;width:0;height:0;overflow:hidden;opacity:0;vertical-align:baseline;white-space:nowrap}
+.ink-line.ink-block-quote{padding-inline-start:1em}
+.ink-line.ink-block-list{padding-inline-start:calc(.5em + var(--marker-width));text-indent:calc(-1 * var(--marker-width))}
+.ink-bold{font-weight:700}.ink-italic{font-style:italic}.ink-underline{text-decoration:underline}.ink-strikethrough{text-decoration:line-through}.ink-underline.ink-strikethrough{text-decoration:underline line-through}.ink-code{background-color:rgb(var(--ink-tint,41 43 38)/.09)}
+.ink-press{color:rgb(var(--ink-tint) / calc(var(--ink-pressure) * var(--strike)));position:relative;left:var(--press-x,0px)}
+.ink-editor-placeholder{position:absolute;pointer-events:none;user-select:none;z-index:1;font-family:var(--ink-font,monospace);font-size:var(--ink-font-size,20px);font-weight:var(--ink-weight,400);line-height:1.15;color:rgb(124 127 109 / .43);white-space:nowrap;max-width:calc(100% - 24px);overflow:hidden}
+.ink-roll-visual-line,.ink-roll-rest{display:block;unicode-bidi:isolate;min-height:1lh}

@@ -2,14 +2,14 @@
   <img src="Sources/Inkrail/Resources/AppIcon.png" width="88" alt="Inkrail icon" />
   <h1>Inkrail</h1>
   <p><em>Paper, ink, and a little room to write.</em></p>
-  <p>A quiet, offline writing desk for Mac and Windows x64. No accounts or subscriptions.</p>
-  <p><a href="https://github.com/Aaryanverma/inkrail/releases/download/v0.1.1/Inkrail.zip">Download for Mac</a> · <a href="https://github.com/Aaryanverma/inkrail/releases/download/v0.1.1/Inkrail-Windows-x64.zip">Download for Windows x64</a></p>
+  <p>A quiet, offline writing desk for Mac, Windows x64 and Windows ARM64. No accounts or subscriptions.</p>
+  <p><a href="https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail.zip">Download for Mac</a> · <a href="https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail-Windows-x64.zip">Download for Windows x64</a> · <a href="https://github.com/Aaryanverma/inkrail/releases/latest">Windows ARM64 release assets</a></p>
 </div>
 
 🎥 Watch the macOS demo ↓
 <p align="center">
   <a href="https://youtu.be/oanl6tyIvMo">
-    <img src="docs/screenshots/inkrail-light-mode.png" alt="Watch the Inkrail demo" width="720">
+    <img src="screenshots/inkrail-light-mode.png" alt="Watch the Inkrail demo" width="720">
   </a>
 </p>
 
@@ -19,25 +19,25 @@
   Captured on macOS.
   
   ##### Light Mode
-  ![Inkrail in light mode](docs/screenshots/inkrail-light-mode.png)
+  ![Inkrail in light mode](screenshots/inkrail-light-mode.png)
 
   ##### Night View
-  ![Inkrail in night mode](docs/screenshots/inkrail-night-mode.png)
+  ![Inkrail in night mode](screenshots/inkrail-night-mode.png)
 
   ##### Night View with Lamp
-  ![Inkrail in night mode with desk lamps](docs/screenshots/inkrail-night-lamp.png)
+  ![Inkrail in night mode with desk lamps](screenshots/inkrail-night-lamp.png)
 
   ##### Focus Mode
-  ![Inkrail in focus mode](docs/screenshots/inkrail-focus-mode.png)
+  ![Inkrail in focus mode](screenshots/inkrail-focus-mode.png)
 
   ##### Font Customization
-  ![Inkrail font customization](docs/screenshots/inkrail-font-customization.png)
+  ![Inkrail font customization](screenshots/inkrail-font-customization.png)
 
   ##### Desk Customization
-  ![Inkrail desk customization](docs/screenshots/inkrail-desk-customization.png)
+  ![Inkrail desk customization](screenshots/inkrail-desk-customization.png)
 
   ##### Machine Customization
-  ![Inkrail machine customization](docs/screenshots/inkrail-machine-customization.png)
+  ![Inkrail machine customization](screenshots/inkrail-machine-customization.png)
 </details>
 
 ## Make yourself at home
@@ -52,9 +52,9 @@ edit an earlier paragraph.
 
 ### macOS
 
-The v0.1.1 download runs on Apple silicon Macs with macOS 13 or later.
+The Mac download runs on Apple silicon Macs with macOS 13 or later.
 Unzip the download and drag **Inkrail.app** into **Applications**.
-[Download Inkrail.zip](https://github.com/Aaryanverma/inkrail/releases/download/v0.1.1/Inkrail.zip)
+[Download Inkrail.zip](https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail.zip)
 
 macOS may block this unnotarized build the first time you open it.
 
@@ -67,16 +67,22 @@ app once, then go to **System Settings → Privacy & Security** and choose
 
 ### Windows
 
-Inkrail for Windows x64 is an unsigned portable app for PCs with 64-bit Intel or AMD processors. [Download Inkrail-Windows-x64.zip from v0.1.1](https://github.com/Aaryanverma/inkrail/releases/download/v0.1.1/Inkrail-Windows-x64.zip)
+Choose the portable ZIP for your PC. Windows shows its processor architecture under **Settings → System → About → System type**.
 
-1. In File Explorer, right-click **Inkrail-Windows-x64.zip** and choose **Extract All**.
+| PC processor | Release asset |
+| --- | --- |
+| 64-bit Intel or AMD | [Inkrail-Windows-x64.zip](https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail-Windows-x64.zip) |
+| ARM64, including Snapdragon | Look for **Inkrail-Windows-arm64.zip** under [release assets](https://github.com/Aaryanverma/inkrail/releases/latest). ARM64 starts with the first release built by the three-platform workflow. |
+
+1. In File Explorer, right-click the downloaded ZIP and choose **Extract All**.
 2. Open **Inkrail.exe** in the extracted folder. Keep the whole folder together when moving the app.
 3. If Microsoft Defender SmartScreen shows **Windows protected your PC** on first launch, select **More info**. Then select **Run anyway** at the bottom of the same dialog to open Inkrail. Windows normally remembers this choice for that copy.
 4. If Inkrail reports a missing runtime, install the **Microsoft Edge WebView2 Evergreen Runtime** and reopen Inkrail. Once the runtime is installed, writing works offline. [Get WebView2 from Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/)
 
-## Build the macOS app from source
+## Build from source
 
-This repository contains the MIT-licensed Swift source for the Mac app. The Windows x64 app is available as a prebuilt ZIP.
+Both Windows architectures build from the same .NET host and WebView2 editor. [Build the Windows ZIPs or publish all three release assets](docs/DEVELOPMENT.md#build-the-windows-zips).
+
 To build the Mac app on macOS 13 or later with Apple's Swift 5.9+ developer tools, double-click **Launch.command** or run the following commands.
 
 ```bash
@@ -139,11 +145,26 @@ Inkrail saves letters locally. You can open the current library from within the 
 
 Keep a separate backup of your library. [Storage & recovery on Mac and Windows →](docs/STORAGE.md)
 
+## Sound credits
+
+Thank you to the recordists who shared the typewriter sounds used in Inkrail under CC0.
+
+| Preset | Typewriter | Recorded by |
+| --- | --- | --- |
+| Classic | Hermes Precisa 305 | Joseph SARDIN (BigSoundBank) |
+| Soft | Hermes 3000 | supersupernator |
+| Royal | Royal Quiet De Luxe | videog |
+| Vintage | 1930s manual | monotraum |
+| Portable | Hermes Baby | evsecrets |
+| Electric | IBM Selectric II | secretmojo |
+
+[Original recordings, license, and editing notes](Sources/Inkrail/Resources/Sound-Credits.txt)
+
 ## Inspiration
 
 <p>Highly inspired by <a href="https://apps.apple.com/in/app/platen-paper-ink/id6809529696">Platen — Paper &amp; Ink</a> app by Rafikki Studio for iOS.<br />
 
-> Platen app was not built for macOS & Windows, so Inkrail fills that gap with extra features that too completely free. Not sponsored by Platen.
+> At the time of making of Inkrail, Platen app was not built/available for macOS & Windows, so Inkrail fills that gap with extra features that too completely free. Not sponsored by Platen.
 
 ---
 

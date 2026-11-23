@@ -2,9 +2,7 @@
 
 [Back to the user guide](../README.md)
 
-This repository contains the macOS Swift package. The build instructions and
-detailed design notes below describe the Mac app. Windows x64 uses a portable
-build with a WebView2 editor and bundled Courier Prime fonts.
+This repository contains the Swift app for macOS and the .NET/WebView2 app for Windows x64 and ARM64. Both Windows builds use the same editor, fonts and host source. All three builds package the artwork and typewriter recordings in `Sources/Inkrail/Resources`.
 
 ## Start on your Mac
 
@@ -43,23 +41,40 @@ not a generated `.xcodeproj`; Xcode supports opening the package directly.
 `swift run Inkrail` is another development option, but the built `.app` is
 preferred for normal Dock and application-menu behavior.
 
+## Build the Windows ZIPs
+
+Install the .NET 10 SDK and Python 3.9 or later. From the repository root, run these commands in PowerShell. Each host uses its own publish directory so files from the two architectures stay separate.
+
+```powershell
+foreach ($arch in 'x64', 'arm64') {
+    dotnet publish packaging/windows/host/Inkrail.csproj -c Release -r "win-$arch" --self-contained true -o ".build/host-$arch"
+    if ($LASTEXITCODE -ne 0) { throw "Host build failed for $arch" }
+    python packaging/windows/build-zip.py --arch $arch --host-dir ".build/host-$arch" --output "dist/Inkrail-Windows-$arch.zip"
+    if ($LASTEXITCODE -ne 0) { throw "ZIP build failed for $arch" }
+}
+```
+
+Both ZIPs contain `Inkrail.exe`, its .NET runtime and WebView2 loader, the complete editor and assets, license notices, `START-HERE.txt`, a SHA-256 file manifest and `Check-Inkrail.ps1`. Extract a ZIP on a matching PC with the Microsoft Edge WebView2 Evergreen Runtime installed. Run `.\Check-Inkrail.ps1` from the extracted folder to exercise the app with disposable new and legacy libraries.
+
 ## GitHub release files
 
-| Destination | Files |
+The **Build and release Inkrail** workflow builds from the checked-out commit and checks these three ZIPs together.
+
+| Release asset | Target |
 | --- | --- |
-| Source repository | The Swift package, app resources, tests, build scripts, CI workflow, license, README and Pages files. To build the Windows x64 app from source, include its Go host source, module files, UI sources and build instructions from the Windows project. |
-| macOS release assets | `Inkrail.zip` containing `Inkrail.app`. The published v0.1.1 archive is for Apple silicon. |
-| Windows x64 release assets | `Inkrail-Windows-x64.zip` containing `Inkrail.exe`, the required `ui/` tree, license notices, `START-HERE.txt`, `files.sha256` and the optional PowerShell smoke test. |
+| `Inkrail.zip` | Apple silicon Mac, macOS 13 or later |
+| `Inkrail-Windows-x64.zip` | Windows on Intel or AMD x64 |
+| `Inkrail-Windows-arm64.zip` | Windows on ARM64 |
 
-The v0.1.1 release carries both platform ZIPs under **Assets**. For future releases, keep the platform filenames so the download page can find each build, even when the Windows x64 build is published separately. GitHub supplies the source ZIP and tarball for each tag. [v0.1.1 release](https://github.com/Aaryanverma/inkrail/releases/tag/v0.1.1)
+Pull requests and branch pushes produce downloadable workflow artifacts. To publish, push a `v`-prefixed tag on the release commit, for example `git tag v0.2.0` followed by `git push origin v0.2.0`. Once the native checks and archive verification pass, the workflow attaches all three ZIPs directly to that tag’s GitHub Release. It creates the release if needed. Re-running the workflow for the same tag replaces its three ZIP assets.
 
-Hash the exact Windows ZIP you intend to attach. From its directory, run
-`Get-FileHash .\Inkrail-Windows-x64.zip -Algorithm SHA256` in PowerShell or
-`shasum -a 256 Inkrail-Windows-x64.zip` on macOS. Include the digest in the
-release notes with the x64 architecture, code signing status and
-Microsoft Edge WebView2 Evergreen Runtime requirement.
+The **Build Inkrail MSIX** workflow separately creates a Microsoft Store package from an x64 release ZIP. It verifies the file manifest and also applies the editor and sound updates when packaging the older Go-based Windows ZIP. The Store manifest requests `unvirtualizedResources` so letters under AppData survive uninstall. Include that purpose when submitting the restricted capability to Partner Center.
 
-To check the ZIP on a Windows x64 PC, extract it, close Inkrail and run `.\Check-Inkrail.ps1` from PowerShell in the extracted folder. It checks typing, saving on close and reopening with a temporary library.
+To exercise the Store upgrade on Windows, create letters in the default and a
+custom library with the old package in a disposable Windows account. Install
+the updated package over it using the same identity and open Inkrail once.
+Check the letters after the upgrade, then uninstall and verify their contents
+directly in both library folders.
 
 ## Make it yours
 
@@ -72,7 +87,7 @@ seven tabs, with related controls in separate cards:
 | Type | Eight typefaces, type size, ribbon colour, ink darkness, worn ribbon and ink buildup |
 | Machine | Twelve capsule styles, Classic capsule colours and rail finishes |
 | Desk | Six finishes, paired desk lamps or small decorative objects, Leather study/Walnut study/Warm oak scenes, and wider paper in Focus Mode |
-| Sound | Classic, Soft, Crisp, Portable, Office or Electric keys, mute, volume and an explicit preview button |
+| Sound | Classic, Soft, Royal, Vintage, Portable or Electric, plus mute, volume and a preview button |
 | Light | Night writing, lamp intensity and warmth, with a live preview |
 | Storage | Current letters folder, Show in Finder, and Change Location to a new or empty folder |
 
@@ -101,21 +116,23 @@ not flicker when redrawn. The treatment changes drawing only, keeping native
 text advances, selection and editing. Complex graphemes, ligatures, emoji and
 active composition retain native rendering.
 
-The six synthesized sound profiles contain six original samples each: three key
-strikes, space, delete and carriage return. **Classic** retains the original
-samples; **Soft** uses muted, warmer sounds, and **Crisp** uses brighter, drier
-strikes. **Portable** adds light mechanical clatter, **Office** adds weightier
-keys and a ringing carriage bell, and **Electric** uses a compact powered snap
-and a short paper-drive return without an idle hum. All 36 samples are bundled
-for offline use. Sounds remain optional. **Preview sound** plays only when pressed;
-changing the sound settings, leaving the tab or closing settings stops the
-preview. Mute stops playback. All 18 previous sound files retain their original
-bytes. An older Recorded selection safely falls back to Classic without
-resetting other preferences.
+Each machine has three individually recorded keystrokes, a space bar, a
+backspace, a margin bell and a carriage return. Classic uses a Hermes
+Precisa 305, Soft a damped Hermes 3000, Royal a Quiet De Luxe, Vintage a
+1930s manual, Portable a Hermes Baby and Electric an IBM Selectric II.
+The app ships 27 edited recording excerpts and 15 sounds designed for
+actions missing from the recordings. All 42 play offline. [Recording credits](../Sources/Inkrail/Resources/Sound-Credits.txt)
 
-Existing preferences retain their values. New fields default to **Classic
-texture, no embossing, Courier and Classic sounds**, preserving the previous
-appearance and sound. Letter files and storage locations are unchanged.
+The bell rings as a keystroke
+crosses the warning point, about seven character widths from the margin.
+With proportional fonts, the exact number of letters that fit depends on
+their widths. The carriage slides and hits its stop on Return or a soft wrap.
+**Preview sound** plays the keys, space bar, bell and return at the selected volume.
+Mute stops playback.
+
+Saved Office and Crisp selections open as Royal and Vintage respectively.
+New fields default to **Classic
+texture, no embossing, Courier and Classic sounds**.
 
 ## Desk finishes and wider Focus Mode
 

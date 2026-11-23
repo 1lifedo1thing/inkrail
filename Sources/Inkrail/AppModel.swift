@@ -11,7 +11,12 @@ extension Notification.Name {
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var pages: [Page] = []
-    @Published var selectedID: UUID?
+    @Published private(set) var selectedID: UUID? {
+        didSet {
+            if selectedID != oldValue, let selectedPage { editor?.display(selectedPage) }
+        }
+    }
+    weak var editor: (any LetterEditor)?
     @Published var preferences: WritingPreferences {
         didSet {
             if (oldValue.soundEnabled && !preferences.soundEnabled)
@@ -108,8 +113,8 @@ final class AppModel: ObservableObject {
     var currentText: String { selectedPage?.text ?? "" }
     var isDirty: Bool { !dirty.isEmpty }
 
-    func edit(_ text: String, formatting: [TextFormatRun] = []) {
-        guard let index = pages.firstIndex(where: { $0.id == selectedID }) else { return }
+    func edit(_ id: UUID, text: String, formatting: [TextFormatRun] = []) {
+        guard let index = pages.firstIndex(where: { $0.id == id }) else { return }
         var page = pages[index]
         guard !page.text.utf8.elementsEqual(text.utf8) || page.formatting != formatting else { return }
         page.text = text
@@ -136,6 +141,12 @@ final class AppModel: ObservableObject {
         }
         saveWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+    }
+
+    @discardableResult
+    func saveNow() -> Bool {
+        editor?.commitComposition()
+        return flush()
     }
 
     @discardableResult
@@ -169,7 +180,7 @@ final class AppModel: ObservableObject {
     }
 
     private func createPage(_ page: Page) {
-        _ = flush()
+        saveNow()
         pages.insert(page, at: 0)
         selectedID = page.id
         rememberSelection()
@@ -180,7 +191,8 @@ final class AppModel: ObservableObject {
     }
 
     func select(_ id: UUID) {
-        _ = flush()
+        guard pages.contains(where: { $0.id == id }) else { return }
+        saveNow()
         selectedID = id
         rememberSelection()
         showLibrary = false
@@ -188,7 +200,7 @@ final class AppModel: ObservableObject {
     }
 
     func moveToTrash(_ id: UUID) {
-        guard flush(), let repo = repository else { return }
+        guard saveNow(), let repo = repository else { return }
         do {
             try repo.moveToTrash(id, at: nowProvider())
             pages.removeAll { $0.id == id }
@@ -220,10 +232,8 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            try repo.restore(id)
-            // Keep any unsaved in-memory edits instead of replacing the whole array.
-            let report = try repo.load()
-            for page in report.pages where !pages.contains(where: { $0.id == page.id }) { pages.append(page) }
+            let page = try repo.restore(id)
+            if !pages.contains(where: { $0.id == page.id }) { pages.append(page) }
             pages.sort { $0.modifiedAt > $1.modifiedAt }
         } catch { errorMessage = error.localizedDescription }
     }
@@ -271,17 +281,17 @@ final class AppModel: ObservableObject {
     @discardableResult
     func changeStorageLocation(to destination: URL) -> Bool {
         storageMessage = nil
-        guard storageAvailable, repository != nil else {
+        guard storageAvailable, let current = repository else {
             storageMessage = "Reconnect your current letters folder and reopen Inkrail before changing its location. Export any unsaved writing first."
             return false
         }
-        guard flush() else {
+        guard saveNow() else {
             storageMessage = "The location was not changed because pending writing could not be saved. Export a copy before closing Inkrail."
             return false
         }
         performTrashMaintenance(force: true)
         do {
-            let next = try LibraryLocation.copyLibrary(from: rootURL, to: destination)
+            let next = try current.copyLibrary(to: destination)
             let previous = rootURL
             repository = next
             rootURL = next.rootURL
@@ -296,6 +306,7 @@ final class AppModel: ObservableObject {
     }
 
     func export(markdown: Bool = false) {
+        editor?.commitComposition()
         guard let page = selectedPage else { return }
         do { try TextExport.save(page, markdown: markdown) }
         catch { errorMessage = error.localizedDescription }

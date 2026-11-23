@@ -11,3 +11,8 @@ extras/
 /Inkrail-Windows-x64/
 /Inkrail-Windows-x64.zip
 /Inkrail*.mp4
+
+# Local outputs from building and testing the Windows host
+/packaging/windows/**/bin/
+/packaging/windows/**/obj/
+/build/

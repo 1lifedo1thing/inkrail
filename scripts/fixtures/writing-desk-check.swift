@@ -5,7 +5,7 @@ import InkrailCore
 // Inert boundary dependencies: production WritingDesk/PaperStage and all their
 // visible subviews compile unchanged, while persistence, sound and unused
 // sheets are deliberately absent from this isolated native rendering check.
-enum StrokeKind { case key, space, carriage, erase, navigation }
+enum StrokeKind { case key, space, carriage, erase, navigation, bell }
 @MainActor final class SoundEngine {
     static let shared = SoundEngine()
     func play(_ kind: StrokeKind, volume: Double, style: TypewriterSound) {}
@@ -24,14 +24,15 @@ extension Bundle {
     @Published var showStudio = false
     @Published var focusMode = false
     @Published var errorMessage: String?
+    weak var editor: (any LetterEditor)?
     var isDirty = false
     var saveState = "Isolated native render"
     init(preferences: WritingPreferences, text: String) {
         self.preferences = preferences
         self.selectedPage = Page(createdAt: Date(timeIntervalSince1970: 1794652800), text: text)
     }
-    func edit(_ text: String, formatting: [TextFormatRun] = []) {
-        guard var page = selectedPage else { return }
+    func edit(_ id: UUID, text: String, formatting: [TextFormatRun] = []) {
+        guard var page = selectedPage, page.id == id else { return }
         page.text = text
         page.formatting = formatting
         selectedPage = page
@@ -989,10 +990,10 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
         if text.isEmpty {
             settle(host)
             try capture(host, model: model, name: name + "-repeat", size: size)
-            model.edit("A")
+            model.edit(model.selectedPage!.id, text: "A")
             settle(host)
             try capture(host, model: model, name: name + "-typed", size: size)
-            model.edit("")
+            model.edit(model.selectedPage!.id, text: "")
             settle(host)
             try capture(host, model: model, name: name + "-cleared", size: size)
         }

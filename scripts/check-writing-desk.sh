@@ -40,6 +40,7 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
     "$INKRAIL_ROOT/Sources/Inkrail/Editor/InkLayoutManager.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Editor/LetterFormatting.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Editor/MarkdownBlocks.swift" \
+    "$INKRAIL_ROOT/Sources/Inkrail/Editor/LetterEditor.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Editor/PaperEditor.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Views/WritingDesk.swift" \
     "$INKRAIL_ROOT/scripts/fixtures/writing-desk-check.swift" \

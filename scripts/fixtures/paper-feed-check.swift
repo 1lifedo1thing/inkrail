@@ -3,12 +3,7 @@ import SwiftUI
 import InkrailCore
 import Darwin
 
-// The editor needs these two application-level declarations, but it does not
-// need AppModel, saved preferences, audio resources or the real app entry point.
-enum StrokeKind { case key, space, carriage, erase, navigation }
-extension Notification.Name {
-    static let inkrailFocusEditor = Notification.Name("Inkrail.FocusEditor")
-}
+enum StrokeKind { case key, space, carriage, erase, navigation, bell }
 
 private struct ProbeError: Error, CustomStringConvertible {
     let description: String
@@ -56,8 +51,8 @@ private final class PaperFeedProbe {
     }
 
     private func representation() -> PaperEditor {
-        PaperEditor(pageID: pageID, text: text, formatting: formatting, preferences: preferences,
-                    onChange: { [weak self] text, formatting in
+        PaperEditor(page: Page(id: pageID, text: text, formatting: formatting), preferences: preferences,
+                    onChange: { [weak self] _, text, formatting in
                         guard let self else { return }
                         self.text = text
                         self.formatting = formatting
@@ -531,6 +526,7 @@ private final class PaperFeedProbe {
         }
         let beginning = "First line.\n"
         let word = String(repeating: "w", count: 128)
+        preferences.writingFont = .courier
         for motion in [PaperMotion.sheet, .roll] {
             strokes.removeAll()
             preferences.paperMotion = motion
@@ -561,9 +557,16 @@ private final class PaperFeedProbe {
                   detail: "document width \(editor.frame.width), paper width \(paperWidth)")
             var maxHorizontalOffset: CGFloat = 0
             var furthestGlyphEdge: CGFloat = 0
+            var bellKeystrokes: [Int] = []
+            var wrapKeystrokes: [Int] = []
             edit {
-                for character in word {
+                for (index, character) in word.enumerated() {
+                    let start = strokes.count
                     editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+                    for stroke in strokes[start...] {
+                        if stroke == .bell { bellKeystrokes.append(index) }
+                        if stroke == .carriage { wrapKeystrokes.append(index) }
+                    }
                     settle(0.01)
                     maxHorizontalOffset = max(maxHorizontalOffset, abs(clip.bounds.minX))
                     layout.ensureLayout(for: container)
@@ -589,6 +592,11 @@ private final class PaperFeedProbe {
             check(wordLines > 1 && returns == wordLines - 1,
                   "\(label) emits one carriage sound for each automatic line wrap",
                   detail: "\(wordLines) visual lines, \(returns) carriage strokes")
+            if let lastWrap = wrapKeystrokes.last {
+                check(bellKeystrokes.filter { $0 < lastWrap } == wrapKeystrokes.map { $0 - 8 },
+                      "\(label) warns once with seven character cells left on each completed line",
+                      detail: "bells \(bellKeystrokes), wraps \(wrapKeystrokes)")
+            }
             let firstLine = layout.lineFragmentRect(forGlyphAt: firstWordGlyph, effectiveRange: nil)
             let lastLine = layout.lineFragmentRect(forGlyphAt: layout.numberOfGlyphs - 1, effectiveRange: nil)
             let rightMargin = paperWidth - editor.textContainerInset.width
@@ -611,6 +619,78 @@ private final class PaperFeedProbe {
                   "\(label) explicit Return, a letter, and a space each emit only their own stroke",
                   detail: "\(strokes)")
         }
+    }
+
+    private func checkMarginBellEdits() throws {
+        guard let container = editor.textContainer else { throw ProbeError(description: "Missing text container") }
+        preferences.writingFont = .courier
+        preferences.fontSize = 20
+        preferences.wideMargins = false
+        refresh()
+        resize(width: 420, height: 430)
+        let font = preferences.writingFont.nsFont(size: preferences.fontSize)
+        let pitch = ("0" as NSString).size(withAttributes: [.font: font]).width
+        let beforeBell = Int(container.containerSize.width / pitch) - 8
+        func loadBeforeBell(_ suffix: String = "") {
+            strokes.removeAll()
+            text = String(repeating: "x", count: beforeBell) + suffix
+            pageID = UUID()
+            refresh()
+            settle()
+        }
+        loadBeforeBell()
+        insert(" ")
+        check(strokes == [.space, .bell], "the space that crosses the margin also rings the bell")
+        insert("x")
+        edit { editor.deleteBackward(nil) }
+        insert("x")
+        check(strokes == [.space, .bell, .key, .erase, .key], "editing inside the margin does not repeat the bell")
+
+        loadBeforeBell("z")
+        editor.setSelectedRange(NSRange(location: beforeBell, length: 1))
+        insert("x")
+        check(strokes == [.key], "replacing a selection at the margin leaves the bell quiet")
+        loadBeforeBell()
+        insert("xyz")
+        check(!strokes.contains(.bell), "bulk insertion across the margin leaves the bell quiet")
+        loadBeforeBell()
+        edit {
+            editor.setMarkedText("e", selectedRange: NSRange(location: 1, length: 0),
+                                 replacementRange: NSRange(location: NSNotFound, length: 0))
+            check(strokes.isEmpty, "provisional input at the margin stays silent")
+            editor.insertText("e\u{301}", replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+        check(strokes == [.key, .bell], "one committed grapheme crossing the margin rings once")
+        loadBeforeBell("x")
+        editor.setSelectedRange(NSRange(location: beforeBell, length: 1))
+        edit {
+            editor.setMarkedText("e", selectedRange: NSRange(location: 1, length: 0),
+                                 replacementRange: NSRange(location: NSNotFound, length: 0))
+            editor.insertText("é", replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+        check(strokes == [.key], "a composition that replaced a selection leaves the bell quiet")
+
+        preferences.writingFont = .georgia
+        func firstWarning(typing letter: String) -> Int? {
+            text = ""
+            pageID = UUID()
+            refresh()
+            settle()
+            strokes.removeAll()
+            var count = 0
+            edit {
+                while count < 100 && !strokes.contains(.carriage) && !strokes.contains(.bell) {
+                    editor.insertText(letter, replacementRange: editor.selectedRange())
+                    count += 1
+                }
+            }
+            return strokes.contains(.bell) ? count : nil
+        }
+        let wide = firstWarning(typing: "W")
+        let narrow = firstWarning(typing: "i")
+        check(wide != nil && (narrow ?? 0) > (wide ?? 0) * 2,
+              "proportional letters ring at the paper margin after different character counts",
+              detail: "wide \(String(describing: wide)), narrow \(String(describing: narrow))")
     }
 
     private func checkTopContinuousFeed() {
@@ -1327,13 +1407,15 @@ private final class PaperFeedProbe {
         checkFocusWidthTransitions()
         checkEndOfWritingScroll()
         try checkUnbrokenTyping()
+        try checkMarginBellEdits()
         try checkFormatting()
         try checkMarkdownTyping()
         try checkHeadingMarkers()
         try checkArrowNavigation()
+        try checkEditorStorage { value, message in check(value, message) }
 
         print("\(checkCount - failures.count)/\(checkCount) standalone checks passed.")
-        print("Not exercised: real OS input methods, hardware keyboard events, menu/clipboard actions, saved files, audio or visual appearance.")
+        print("Not exercised: real OS input methods, hardware keyboard events, menu/clipboard actions, audio or visual appearance.")
         return failures.isEmpty
     }
 }

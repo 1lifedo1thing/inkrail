@@ -1,224 +1,243 @@
 #!/usr/bin/env python3
-"""Synthesize Inkrail's original sound styles using Python's stdlib.
+"""Assemble Inkrail's six offline typewriter sound banks.
 
-No recordings, downloaded assets, libraries or fonts are used. Seeds are fixed.
-Classic's six existing WAVs are deliberately never opened or overwritten.
-Run without arguments to refresh Soft, Crisp, Portable, Office and Electric, or pass
---output DIR to render reference files elsewhere for validation.
+Recorded edits are masters in Sources/Inkrail/Resources. Copy those verbatim
+and render the remaining mechanical actions from their individual scores.
 """
-
 import argparse
 import math
 from pathlib import Path
 import random
+import shutil
 import struct
 import wave
 
 RATE = 44100
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLES = ("key-1", "key-2", "key-3", "space", "return", "erase")
-DURATIONS = {
-    "soft": (0.115, 0.119, 0.123, 0.145, 0.390, 0.105),
-    "crisp": (0.070, 0.074, 0.078, 0.095, 0.310, 0.065),
-    "portable": (0.092, 0.096, 0.100, 0.125, 0.410, 0.100),
-    "office": (0.145, 0.151, 0.157, 0.175, 0.490, 0.135),
-    "electric": (0.082, 0.086, 0.090, 0.110, 0.330, 0.085),
+RESOURCES = ROOT / "Sources/Inkrail/Resources"
+SAMPLES = ("key-1", "key-2", "key-3", "space", "erase", "return", "bell")
+
+# Impact responses. First the contact noise (bandwidth in Hz, decay in ms),
+# then the modes it excites in the object (Hz, relative strength, decay in ms).
+# The short, inharmonic frame modes die out in the first few oscillations.
+SURFACES = {
+    "keycap": (3400, 1.5, [(680, .22, 2.9), (1870, .16, 1.8)]),
+    "platen": (2100, 3.6, [(205, .45, 6), (585, .28, 4), (1060, .15, 2.8)]),
+    "basket": (4700, 2.6, [(380, .34, 5.4), (925, .29, 4.4), (2150, .23, 3.1)]),
+    "pawl": (6100, 1.15, [(1480, .24, 2.0), (2640, .18, 1.6)]),
+    "spring": (5000, 1.45, [(730, .24, 3.1), (2310, .24, 3.3), (3860, .10, 1.8)]),
+    "cast": (1350, 4, [(142, .36, 7.2), (330, .31, 6.3), (564, .29, 4.8)]),
+    "wood": (1460, 3.2, [(245, .37, 5.7), (530, .32, 4.6), (925, .13, 2.9)]),
+    "felt": (810, 4.5, [(220, .28, 4.2), (430, .23, 4.6)]),
+    "rubber": (600, 3.8, [(130, .39, 7.9), (275, .31, 6.5)]),
+    "shell": (4650, 2.2, [(560, .33, 3.4), (1120, .30, 3.8), (2950, .21, 2.1)]),
+    "cam": (2850, 1.8, [(340, .29, 3.9), (1060, .31, 2.9)]),
 }
 
 
-def envelope(t, attack, decay):
-    return min(1.0, max(0.0, t) / attack) * math.exp(-max(0.0, t) / decay) if t >= 0 else 0.0
+class Take:
+    def __init__(self, duration_ms, seed):
+        self.frames = [0.] * round(duration_ms * RATE / 1000)
+        self.rng = random.Random(seed)
+
+    def hit(self, at, surface, gain):
+        """Contact and elastic response of a struck part, in milliseconds."""
+        start = round(at * RATE / 1000)
+        cutoff, decay_ms, modes = SURFACES[surface]
+        count = min(len(self.frames) - start, round(decay_ms * .007 * RATE))
+        alpha = -math.expm1(-math.tau * cutoff / RATE)
+        decay = math.exp(-1000 / (decay_ms * RATE))
+        amplitude, low, body = 1., 0., 0.
+        for i in range(count):
+            low += alpha * (self.rng.uniform(-1, 1) - low)
+            body += .012 * (low - body)
+            self.frames[start + i] += gain * min(1, i / 5) * amplitude * (low - body)
+            amplitude *= decay
+        for hz, strength, tail in modes:
+            # Variation among individual bars, clearances and contact points.
+            self.mode(at, hz * self.rng.uniform(.956, 1.045),
+                      gain * strength * self.rng.uniform(.85, 1.15), tail, .32)
+
+    def hits(self, *contacts):
+        for at, surface, gain in contacts:
+            self.hit(at, surface, gain)
+
+    def mode(self, at, hz, gain, decay_ms, attack_ms):
+        start = round(at * RATE / 1000)
+        count = min(len(self.frames) - start, round(7 * decay_ms * RATE / 1000))
+        amplitude = gain
+        decay = math.exp(-1000 / (RATE * decay_ms))
+        attack = attack_ms * RATE / 1000
+        angle = math.tau * hz / RATE
+        for i in range(count):
+            self.frames[start + i] += amplitude * min(1, i / attack) * math.sin(angle * i)
+            amplitude *= decay
+
+    def slide(self, at, duration, gain, band, end_band, grain=0.):
+        """Unpitched friction, with optional pressure ripples in a moving rail."""
+        start = round(at * RATE / 1000)
+        count = round(duration * RATE / 1000)
+        low = body = grain_noise = 0.
+        for i in range(count):
+            p = i / count
+            cutoff = band + (end_band - band) * p
+            low += -math.expm1(-math.tau * cutoff / RATE) * (self.rng.uniform(-1, 1) - low)
+            body += .018 * (low - body)
+            grain_noise += .0009 * (self.rng.uniform(-1, 1) - grain_noise)
+            envelope = min(1, i / (.11 * count), (count - i - 1) / (.09 * count))
+            pressure = 1 + grain * min(1, max(-1, 38 * grain_noise))
+            self.frames[start + i] += gain * pressure * envelope * (low - .65 * body)
+
+    def teeth(self, times, gain):
+        for at in times:
+            self.hit(at, "pawl", gain * self.rng.uniform(.70, 1.14))
+
+    def motor(self, at, duration, gain, cruise_hz):
+        """Brief electric drive under load, with brush noise and commutator pulses."""
+        start = round(at * RATE / 1000)
+        count = round(duration * RATE / 1000)
+        phase = brush = vibration = 0.
+        for i in range(count):
+            p = i / count
+            speed = .68 + .32 * min(1, p * 8, (1 - p) * 5)
+            phase += speed * cruise_hz / RATE
+            brush += .17 * (self.rng.uniform(-1, 1) - brush)
+            vibration += .037 * (self.rng.uniform(-1, 1) - vibration)
+            commutator = (1 - ((phase * 5) % 1)) ** 3
+            envelope = min(1, p * 15, (1 - p) * 12)
+            self.frames[start + i] += gain * envelope * (
+                brush * (.45 + 2.2 * commutator) + .70 * vibration +
+                .085 * math.sin(math.tau * phase) + .07 * (commutator - .25))
+
+    def bell(self, at, modes, attack=.70):
+        for hz, gain, decay_ms in modes:
+            self.mode(at, hz, gain, decay_ms, attack)
 
 
-def tone(t, frequency):
-    return math.sin(math.tau * frequency * t)
+def classic(take, action):
+    # The reversing pawl catches the heavier manual carriage.
+    take.hits((0, "keycap", .43), (8, "pawl", .88),
+              (16, "basket", .67), (35, "pawl", .29))
 
 
-def synthesize(style, name, variant, duration):
-    """Excite small synthetic bodies with filtered, deterministic noise."""
-    if style in ("portable", "office", "electric"):
-        return synthesize_mechanical(style, name, variant, duration)
-    rng = random.Random((81173 if style == "soft" else 29411) + variant * 991)
-    low = 0.0
-    felt = 0.0
-    result = []
-    for frame in range(int(RATE * duration)):
-        t = frame / RATE
-        white = rng.uniform(-1.0, 1.0)
-        low += 0.16 * (white - low)
-        felt += 0.18 * (low - felt)
-        high = white - low
-        if style == "soft":
-            if name.startswith("key"):
-                body = 175 + variant * 18
-                value = (0.33 * felt + 0.20 * tone(t, body)) * envelope(t, 0.0018, 0.026)
-                value += 0.025 * tone(t, 650 + 37 * variant) * envelope(t, 0.0012, 0.012)
-                value += 0.045 * tone(t - 0.025, 125) * envelope(t - 0.025, 0.0018, 0.012)
-            elif name == "space":
-                value = (0.24 * felt + 0.22 * tone(t, 125)) * envelope(t, 0.0022, 0.038)
-                value += 0.035 * tone(t, 390) * envelope(t, 0.002, 0.016)
-            elif name == "erase":
-                value = (0.46 * felt + 0.15 * tone(t, 265)) * envelope(t, 0.0018, 0.023)
-            else:
-                # Muted bell, felt carriage sweep, then a soft lever stop.
-                value = 0.035 * tone(t, 880) * envelope(t, 0.002, 0.070)
-                for start in (0.035, 0.068, 0.105, 0.145, 0.190):
-                    value += 0.19 * felt * envelope(t - start, 0.002, 0.012)
-                value += 0.18 * tone(t - 0.245, 145) * envelope(t - 0.245, 0.0025, 0.029)
-        else:
-            if name.startswith("key"):
-                value = 0.50 * high * envelope(t, 0.0002, 0.0065)
-                value += 0.18 * tone(t, 2200 + variant * 190) * envelope(t, 0.0002, 0.010)
-                value += 0.060 * tone(t, 430 + variant * 23) * envelope(t, 0.0003, 0.016)
-                value += 0.20 * high * envelope(t - 0.014, 0.0002, 0.004)
-            elif name == "space":
-                value = 0.46 * high * envelope(t, 0.0003, 0.010)
-                value += 0.13 * tone(t, 1340) * envelope(t, 0.0002, 0.014)
-                value += 0.10 * tone(t - 0.018, 240) * envelope(t - 0.018, 0.0004, 0.018)
-            elif name == "erase":
-                value = 0.44 * high * envelope(t, 0.0002, 0.0055)
-                value += 0.16 * tone(t, 3350) * envelope(t, 0.0002, 0.012)
-            else:
-                # Dry metal bell and ratchet, followed by a short carriage stop.
-                value = (0.11 * tone(t, 2380) + 0.035 * tone(t, 3160)) * envelope(t, 0.0004, 0.048)
-                for start in (0.035, 0.053, 0.074, 0.098, 0.125, 0.155):
-                    value += 0.34 * high * envelope(t - start, 0.0002, 0.004)
-                value += (0.24 * high + 0.12 * tone(t - 0.215, 340)) * envelope(t - 0.215, 0.0004, 0.016)
-        # A short release window guarantees a zero endpoint without clipping.
-        tail = min(1.0, (int(RATE * duration) - frame - 1) / (RATE * 0.006))
-        result.append(value * max(0.0, tail))
-    peak = max(abs(value) for value in result)
-    target = 0.36 if style == "soft" else 0.74
-    return [value * target / peak for value in result]
+def soft(take, action):
+    if action == "space":
+        take.hit(0, "felt", .77)
+        take.slide(3, 27, .23, 980, 430)
+        take.hits((17, "rubber", .95), (53, "wood", .24))
+    elif action == "erase":
+        take.hit(0, "felt", .67)
+        take.slide(4, 23, .40, 750, 1950)
+        take.hits((27, "wood", .86), (48, "felt", .28))
+    else:
+        # The cushion absorbs the end of the stroke after the rail glides shut.
+        take.hit(0, "wood", .52)
+        take.slide(7, 239, .49, 670, 2050, .30)
+        take.slide(137, 104, .26, 1900, 380, .32)
+        take.hits((247, "rubber", 1.25), (254, "felt", .85), (279, "wood", .25))
 
 
-def impact(t, noise, body, decay, brightness=1.0):
-    """A short contact crack followed by inharmonic housing vibration."""
-    return (0.50 * noise * envelope(t, 0.0003, 0.0035)
-            + 0.23 * tone(t, body) * envelope(t, 0.0005, decay)
-            + 0.12 * brightness * tone(t, body * 2.71) * envelope(t, 0.0003, decay * 0.56)
-            + 0.07 * brightness * tone(t, body * 5.13) * envelope(t, 0.0002, decay * 0.28))
+def royal(take, action):
+    # The broad space lever bottoms out in the frame, the dog releases, then
+    # the keylever returns more slowly. Backspace engages the reversing pawl.
+    if action == "space":
+        take.hits((0, "wood", .93), (12, "cast", 1.17), (32, "pawl", .56),
+                  (61, "wood", .54), (68, "cast", .38))
+    else:
+        take.hits((0, "cast", .65), (19, "basket", .89), (28, "platen", 1.0),
+                  (53, "pawl", .47), (65, "cast", .34))
 
 
-def synthesize_mechanical(style, name, variant, duration):
-    """Three different mechanisms, with their own strike, latch and return.
-
-    These are invented mechanical voices, not recordings or emulations of a
-    branded machine. Noise sources and contact timing are seeded per sample.
-    Electric's cam/drive texture occurs only during a stroke or paper return;
-    there is no idle loop, background hum, or runtime synthesis.
-    """
-    rng = random.Random({"portable": 53017, "office": 97321, "electric": 61283}[style] + variant * 991)
-    low = 0.0
-    body_noise = 0.0
-    result = []
-    frames = int(RATE * duration)
-    for frame in range(frames):
-        t = frame / RATE
-        white = rng.uniform(-1.0, 1.0)
-        low += 0.24 * (white - low)
-        body_noise += 0.10 * (low - body_noise)
-        high = white - low
-        if style == "portable":
-            # A small, light housing: bright typebar contact, a loose latch,
-            # and two uneven rebound contacts rather than a single click.
-            if name.startswith("key"):
-                body = 510 + variant * 29
-                value = impact(t, high, body, 0.014, 0.8)
-                value += 0.46 * impact(t - 0.013, high, body * 1.44, 0.007)
-                value += 0.28 * impact(t - 0.031, low, 310, 0.011, 0.4)
-                value += 0.12 * impact(t - 0.053, high, 1120, 0.005)
-            elif name == "space":
-                value = impact(t, low, 290, 0.020, 0.6)
-                value += 0.58 * impact(t - 0.021, high, 880, 0.009)
-                value += 0.25 * impact(t - 0.046, high, 470, 0.011)
-            elif name == "erase":
-                value = 0.65 * impact(t, high, 760, 0.008)
-                value += 0.85 * impact(t - 0.018, high, 440, 0.013)
-                value += 0.24 * impact(t - 0.039, low, 310, 0.009)
-            else:
-                value = (0.085 * tone(t, 1950) + 0.025 * tone(t, 3217)) * envelope(t, 0.0006, 0.080)
-                # Escapement teeth accelerate, then settle into the end stop.
-                for index, start in enumerate((0.045, 0.077, 0.107, 0.134, 0.158, 0.180, 0.201, 0.221)):
-                    value += (0.25 + index * 0.018) * impact(t - start, high, 820, 0.004)
-                value += 0.72 * impact(t - 0.276, low, 260, 0.022, 0.4)
-                value += 0.25 * impact(t - 0.308, high, 610, 0.009)
-        elif style == "office":
-            # A heavier chassis: deeper body, slower lever release and a
-            # restrained metal ring. The return has a longer, lower bell.
-            if name.startswith("key"):
-                body = 180 + variant * 11
-                value = impact(t, low * 1.8, body, 0.031, 0.65)
-                value += 0.22 * high * envelope(t, 0.0004, 0.005)
-                value += 0.46 * impact(t - 0.023, low, 365, 0.019, 0.6)
-                value += 0.23 * impact(t - 0.057, body_noise * 2, 135, 0.024, 0.3)
-            elif name == "space":
-                value = impact(t, low * 1.6, 130, 0.039, 0.5)
-                value += 0.46 * impact(t - 0.029, low, 310, 0.021, 0.5)
-                value += 0.20 * impact(t - 0.067, body_noise * 2, 110, 0.028, 0.2)
-            elif name == "erase":
-                value = 0.65 * impact(t, high, 420, 0.013, 0.6)
-                value += 0.85 * impact(t - 0.025, low * 1.5, 225, 0.028, 0.4)
-                value += 0.24 * impact(t - 0.059, low, 160, 0.019, 0.3)
-            else:
-                value = (0.14 * tone(t, 1385) + 0.045 * tone(t, 2241)
-                         + 0.020 * tone(t, 3598)) * envelope(t, 0.0007, 0.130)
-                for start in (0.060, 0.094, 0.130, 0.169, 0.211, 0.254):
-                    value += 0.32 * impact(t - start, low * 1.5, 440, 0.008, 0.5)
-                value += 0.95 * impact(t - 0.322, low * 1.5, 145, 0.034, 0.4)
-                value += 0.28 * impact(t - 0.370, body_noise * 2, 105, 0.025, 0.2)
-        else:
-            # A driven mechanism: cam engagement precedes a compact print
-            # impact, followed by a short filtered mechanical release.
-            if name.startswith("key"):
-                body = 930 + variant * 41
-                value = 0.34 * impact(t, high, 1560, 0.005, 0.6)
-                value += impact(t - 0.008, high, body, 0.009, 0.5)
-                value += 0.38 * impact(t - 0.026, low, 400, 0.009, 0.3)
-                value += 0.12 * low * (0.6 + 0.4 * tone(t, 170)) * envelope(t - 0.010, 0.003, 0.015)
-            elif name == "space":
-                value = 0.52 * impact(t, high, 1280, 0.005, 0.4)
-                value += 0.75 * impact(t - 0.015, low, 510, 0.013, 0.4)
-                value += 0.18 * low * (0.6 + 0.4 * tone(t, 150)) * envelope(t - 0.008, 0.004, 0.024)
-            elif name == "erase":
-                value = impact(t, high, 1140, 0.007, 0.4)
-                value += 0.68 * impact(t - 0.018, low, 670, 0.010, 0.4)
-                value += 0.14 * low * envelope(t - 0.009, 0.003, 0.018)
-            else:
-                value = 0.5 * impact(t, high, 1150, 0.008, 0.5)
-                # Short finite paper-drive sweep, with no traditional bell.
-                drive = max(0.0, t - 0.018)
-                drive_window = envelope(t - 0.018, 0.024, 0.070)
-                value += (0.36 * low + 0.075 * tone(drive, 180 + 220 * drive)) * drive_window
-                for start in (0.045, 0.070, 0.094, 0.116, 0.137, 0.157):
-                    value += 0.18 * impact(t - start, high, 780, 0.004, 0.4)
-                value += 0.70 * impact(t - 0.222, low, 335, 0.014, 0.5)
-        # Preserve a genuine zero attack/release, even for delayed contacts.
-        tail = min(1.0, (frames - frame - 1) / (RATE * 0.008))
-        result.append(value * max(0.0, tail))
-    peak = max(abs(value) for value in result)
-    target = {"portable": 0.64, "office": 0.69, "electric": 0.60}[style]
-    return [value * target / peak for value in result]
+def vintage(take, action):
+    if action == "space":
+        take.hit(0, "wood", .76)
+        take.teeth([9, 22, 31], .67)
+        take.slide(32, 19, .27, 2700, 690)
+        take.hits((51, "spring", .48), (73, "wood", .29))
+    elif action == "erase":
+        take.hit(0, "spring", .45)
+        take.slide(1, 20, .45, 1020, 3300, .8)
+        take.teeth([10, 18, 29, 47], .73)
+        take.hits((50, "wood", .87), (77, "spring", .33))
+    else:
+        # The loose striker excites two closely spaced bell modes.
+        take.hits((0, "spring", .29), (6, "pawl", .18))
+        take.bell(7, [(1770, .54, 117), (1802, .42, 138), (3900, .35, 74),
+                      (5540, .17, 51), (7200, .12, 24)])
 
 
-def write_wave(path, values):
-    pcm = struct.pack("<" + "h" * len(values), *(round(value * 32767) for value in values))
+def portable(take, action):
+    # Short travel, a thin shell and a fast escapement reset.
+    if action == "space":
+        take.hits((0, "keycap", .70), (2, "shell", 1.06), (21, "spring", .51))
+    else:
+        take.hits((0, "pawl", .96), (6, "shell", .70), (17, "keycap", .56))
+
+
+def electric(take, action):
+    if action == "space":
+        take.hit(0, "keycap", .55)
+        take.motor(3, 41, .78, 156)
+        take.hits((7, "cam", .48), (30, "pawl", .77), (43, "rubber", .37))
+    elif action == "erase":
+        take.hit(0, "cam", .54)
+        take.motor(4, 61, .94, 105)
+        take.hits((20, "pawl", .56), (41, "cam", .87), (62, "rubber", .39))
+    elif action == "return":
+        take.hit(0, "cam", .64)
+        take.motor(4, 273, .60, 118)
+        take.slide(24, 234, .17, 850, 1980)
+        take.hits((266, "platen", 1.38), (269, "cam", .89), (286, "rubber", .47))
+    else:
+        take.hit(0, "cam", .35)
+        take.bell(3, [(2340, .74, 91), (2358, .10, 63), (4030, .24, 42),
+                      (7060, .13, 20)], attack=.4)
+
+
+# Each entry lists only the synthesized actions (duration in ms, peak gain).
+# Every other action is an edited field recording of that particular machine.
+MODELED = {
+    "classic": (classic, 4816, {"erase": (89, .66)}),
+    "soft": (soft, 81173, {"space": (106, .16), "erase": (91, .18), "return": (322, .27)}),
+    "royal": (royal, 97321, {"space": (139, .68), "erase": (129, .63)}),
+    "vintage": (vintage, 29411, {"space": (132, .55), "erase": (137, .52), "bell": (625, .43)}),
+    "portable": (portable, 53017, {"space": (69, .33), "erase": (59, .31)}),
+    "electric": (electric, 61283, {"space": (77, .47), "erase": (92, .51),
+                                   "return": (344, .68), "bell": (445, .41)}),
+}
+
+
+def write_wave(path, frames, peak):
+    gain = peak * 32767 / max(map(abs, frames))
+    release = round(.006 * RATE)
+    pcm = [round(value * gain * min(1, (len(frames) - i - 1) / release))
+           for i, value in enumerate(frames)]
     with wave.open(str(path), "wb") as output:
-        output.setnchannels(1)
-        output.setsampwidth(2)
-        output.setframerate(RATE)
-        output.writeframes(pcm)
+        output.setparams((1, 2, RATE, 0, "NONE", "not compressed"))
+        output.writeframes(struct.pack(f"<{len(pcm)}h", *pcm))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "Sources/Inkrail/Resources")
+    parser.add_argument("--output", type=Path, default=RESOURCES)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    for style, durations in DURATIONS.items():
-        for variant, (name, duration) in enumerate(zip(SAMPLES, durations), start=1):
-            write_wave(args.output / f"{style}-{name}.wav", synthesize(style, name, variant, duration))
-    print(f"Generated {len(DURATIONS) * len(SAMPLES)} original WAVs in {args.output}; Classic WAVs were not modified.")
+    for style, (perform, seed, score) in MODELED.items():
+        for index, sample in enumerate(SAMPLES):
+            stem = sample if style == "classic" else f"{style}-{sample}"
+            path = args.output / f"{stem}.wav"
+            if sample in score:
+                duration, peak = score[sample]
+                take = Take(duration, seed + index * 991)
+                perform(take, sample)
+                write_wave(path, take.frames, peak)
+            else:
+                master = RESOURCES / path.name
+                if not master.is_file():
+                    raise FileNotFoundError(f"Missing bundled recording master: {master}")
+                if path.resolve() != master.resolve():
+                    shutil.copyfile(master, path)
+    print(f"Assembled {len(MODELED) * len(SAMPLES)} WAVs in {args.output}.")
 
 
 if __name__ == "__main__":
