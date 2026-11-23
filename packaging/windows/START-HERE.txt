@@ -1,4 +1,4 @@
-INKRAIL FOR WINDOWS
+INKRAIL v0.1.2 FOR WINDOWS
 Paper, ink, and a little room to write.
 1. Use the x64 ZIP for an Intel or AMD PC, or arm64 for an ARM-based PC.
 2. In File Explorer, choose Extract All. Keep the whole folder together.
@@ -23,8 +23,12 @@ At your desk:
   Ctrl+Shift+E           Export text
   Alt+F or the top …     Open the file and writing menu
 
-Choose Export Markdown… from the Alt+F menu to keep the letter’s formatting
-for import on another computer. Choose Export text… for a plain-text copy.
+Choose Seal letter… on a written page to add a wax seal. Choose Edit seal…
+to change its inscription, shape or color, or to remove it.
+The export button and the Alt+F menu offer three formats. Export Letter as
+PDF… keeps the finished stationery and seal. Export Markdown… preserves
+formatting and seal details for import into Inkrail. Export text… includes
+the words and seal inscription.
 
 Libraries:
   Default library: %APPDATA%\Inkrail\Library

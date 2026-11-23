@@ -1,19 +1,19 @@
-# Development notes
+# Inkrail v0.1.2 development notes
 
 [Back to the user guide](../README.md)
 
-This repository contains the Swift app for macOS and the .NET/WebView2 app for Windows x64 and ARM64. Both Windows builds use the same editor, fonts and host source. All three builds package the artwork and typewriter recordings in `Sources/Inkrail/Resources`.
+These instructions use the v0.1.2 source tree. The Mac app uses Swift. The Windows x64 and ARM64 builds share the same .NET host, WebView2 editor and fonts. All three builds package the artwork and typewriter recordings in `Sources/Inkrail/Resources`.
 
 ## Start on your Mac
 
-The v0.1.1 ZIP contains an ad-hoc signed, unnotarized `Inkrail.app` for Apple silicon. It runs without developer tools. The build script on `main` targets the Mac running it, so Intel users can build on an Intel Mac. A universal app for both architectures is in development.
+The v0.1.2 build script produces one ad-hoc signed, unnotarized `Inkrail.app` with Intel (`x86_64`) and Apple silicon (`arm64`) slices. macOS runs the native slice automatically.
 
 To build from source, you need **macOS 13 or later** and **Apple's Swift 5.9+ developer toolchain**
 (Xcode 15+ or a sufficiently recent Command Line Tools installation).
 No Python, Node, package service, account, API key, or paid developer account
 is required to build and run locally.
 
-1. Clone the repository or extract its source archive and open the folder containing `Package.swift`.
+1. In the v0.1.2 source tree, open the folder containing `Package.swift`.
 2. Double-click **Launch.command**. It builds a native `.app` and opens it.
 3. The resulting **dist/Inkrail.app** can be dragged into Applications.
 
@@ -58,19 +58,20 @@ Both ZIPs contain `Inkrail.exe`, its .NET runtime and WebView2 loader, the compl
 
 ## Run the tests
 
-From the repository root on macOS, run `swift test` to exercise the core models,
-preferences and storage. Run `bash scripts/check-storage-model.sh` to check
-autosave, recovery and native editing. On Windows, run
-`dotnet run --project packaging/windows/tests/StorageChecks.csproj --configuration Release`
+From the v0.1.2 source root on macOS, run `swift test` for the core models,
+preferences and storage. Run `bash scripts/check-storage-model.sh` for autosave,
+recovery and native editing. Run `bash scripts/check-letter-pdf.sh` to check
+line wrapping, pagination and seal placement in the native PDF renderer.
+On Windows, run `dotnet run --project packaging/windows/tests/StorageChecks.csproj --configuration Release`
 to check the library and upgrade paths.
 
 ## GitHub release files
 
-The published [v0.1.1 release](https://github.com/Aaryanverma/inkrail/releases/tag/v0.1.1) includes an Apple silicon Mac ZIP and a portable Windows x64 ZIP. The **Build and release Inkrail** workflow on `main` builds and checks all three targets below.
+The **Build and release Inkrail** workflow builds and verifies three ZIPs for v0.1.2.
 
 | Release asset | Target |
 | --- | --- |
-| `Inkrail.zip` | Apple silicon Mac, macOS 13 or later |
+| `Inkrail.zip` | Intel and Apple silicon Macs running macOS 13 Ventura or later |
 | `Inkrail-Windows-x64.zip` | Windows on Intel or AMD x64 |
 | `Inkrail-Windows-arm64.zip` | Windows on ARM64 |
 
@@ -90,7 +91,7 @@ Open **Make it yours** with **⌘,** on Mac or **Ctrl+,** on Windows. Settings a
 
 | Tab | Choices |
 | --- | --- |
-| Paper | Sheet or Paper roll, paper colour, texture and detail, embossing and relief, botanical margins, starting position and margins |
+| Paper | Sheet or Paper roll, paper colour, texture and detail, embossing and relief, margin style, starting position and margin width |
 | Type | Eight typefaces, type size, ribbon colour, ink darkness, worn ribbon and ink buildup |
 | Machine | Twelve capsule styles, Classic capsule colours and rail finishes |
 | Desk | Six finishes, paired desk lamps or small decorative objects, Leather study/Walnut study/Warm oak scenes, and wider paper in Focus Mode |
@@ -100,9 +101,9 @@ Open **Make it yours** with **⌘,** on Mac or **Ctrl+,** on Windows. Settings a
 
 Paper textures are **Classic**, **Smooth**, **Laid** and **Cotton**. Use
 **Texture detail** to adjust the surface where applicable. Embossing offers
-**None**, **Botanical**, **Monogram** and **Sunburst**, with a **Relief** control.
-These are original, deterministic paper treatments; the existing botanical
-margin decoration remains a separate option.
+**None**, **Botanical**, **Monogram**, **Sunburst** and **Maker’s mark**, with a **Relief** control.
+**Margin style** offers **None**, **Botanical**, **Ledger**, **Art Deco** and **Celestial**.
+Use **Wide margins** to adjust the writing area independently of the decoration.
 
 The typefaces are **Courier**, **American Typewriter**, **Menlo**, **Georgia**,
 **Courier New**, **Typewriter Light**, **Typewriter Condensed** and **Monaco**.
@@ -110,9 +111,10 @@ The Mac app uses American Typewriter's Light and Condensed faces when installed.
 Windows bundles Courier Prime for the Courier choice. Both apps use local fallbacks
 when a face is unavailable. For example, Windows can use Consolas for Menlo or
 Lucida Console for Monaco. The editor, placeholder and previews use the same
-selected face. Plain text exports the words, while Markdown also preserves
-supported formatting. Font and paper styling apply to the desk. For upcoming PDF
-and stationery features, see [In development](../README.md#in-development).
+selected face. A PDF uses the current writing width, type, ink and paper.
+Embossing and decorative margins appear on the first sheet. A wax seal appears
+after the last line on the final sheet. A plain-text export includes the seal
+inscription. Markdown preserves its inscription, shape and color for reimport.
 
 For an uneven old-typewriter impression, open **Type → Ribbon & ink**, enable
 **Worn ribbon** and raise **Ink buildup**. Some letters gain extra weight and
@@ -140,8 +142,12 @@ their widths. The carriage slides and hits its stop on Return or a soft wrap.
 Mute stops playback.
 
 Saved Office and Crisp selections open as Royal and Vintage respectively.
-New fields default to **Classic
-texture, no embossing, Courier and Classic sounds**.
+On a fresh v0.1.2 install, the ivory paper uses **Classic** texture at **70%**
+detail and **Maker’s mark** at **70%** relief, with **Margin style** set to
+**None**. The slider is **Walnut** with a matching
+**Brass** rail. **Classic** sounds start at **55%** volume. Turning on night
+writing lights the lamp at **85%** intensity and **55%** warmth. The default
+writing font is **Courier** on Mac and **Courier Prime** on Windows.
 
 ## Desk finishes and wider Focus Mode
 
@@ -190,7 +196,7 @@ background with no desk accents. Leaving Focus restores the selected finish,
 accent and regular sheet width. Paper, ink, lamp and sound preferences remain
 independent; all decoration stays outside the editable text system.
 
-## Paper roll from the supplied recording
+## Paper roll
 
 Open **Make it yours (⌘,) → Paper → Page layout → Paper motion → Paper roll**.
 **Start writing → Top or Bottom** remains available for both paper modes.
@@ -201,7 +207,7 @@ narrow as they pass over the stationary curved upper edge. Texture and
 embossing use the same paper curve. The capsule returns quickly to the next
 line. Reduce Motion makes the feed and carriage movement immediate.
 
-**Sheet**, **Top** and **Classic sounds** remain the defaults. Switching paper
+**Paper roll** and **Bottom** are the defaults. Switching paper
 motion keeps the chosen starting position. **Curved upper corners** now uses
 longer tapered shoulders, a shallow bowed lip and softer light across the
 paper's bend. Turn it off to retain the simple rectangular edge.

@@ -3,8 +3,10 @@
   <h1>Inkrail</h1>
   <p><em>Paper, ink, and a little room to write.</em></p>
   <p>A quiet, offline writing desk for Mac and Windows. No accounts or subscriptions.</p>
-  <p><a href="https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail.zip">Download for Mac</a> · <a href="https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail-Windows-x64.zip">Download for Windows x64</a> · <a href="https://apps.microsoft.com/detail/9nq2fds73hpz">Get it from the Microsoft Store</a></p>
+  <p><a href="https://github.com/Aaryanverma/inkrail/releases">Mac and Windows downloads</a> · <a href="https://apps.microsoft.com/detail/9nq2fds73hpz">Get it for Windows on the Microsoft Store</a></p>
 </div>
+
+**Inkrail v0.1.2** lets you press a maker’s mark into the paper, decorate its margins, and finish a letter with a personal wax seal. Export it as a PDF to keep the stationery, ink, and seal together.
 
 🎥 Watch the macOS demo ↓
 <p align="center">
@@ -20,6 +22,12 @@
   
   ##### Light Mode
   ![Inkrail in light mode](screenshots/inkrail-light-mode.png)
+
+  ##### Maker’s mark
+  ![The Classic carriage at a walnut writing desk, with brass margin stops and an IR impression in the paper](screenshots/inkrail-makers-mark.png)
+
+  ##### Paper embossings
+  ![Botanical, Monogram, Sunburst and Maker’s mark on ivory paper at 45% relief in day and night light](screenshots/inkrail-paper-embossings.png)
 
   ##### Night View
   ![Inkrail in night mode](screenshots/inkrail-night-mode.png)
@@ -44,6 +52,10 @@
 
 Textured paper. A small moving typewriter. Warm lamps and optional mechanical
 sounds. Open **Make it yours** to choose your paper, typeface, ink and desk.
+On a fresh desk, the Walnut carriage runs on a brass rail. The ivory paper roll uses Classic texture at 70% detail and **Maker’s mark**, the carriage’s initials pressed into the sheet at 70% relief.
+You can change the mark or its relief under **Paper → Embossing**.
+Under **Paper → Paper surface → Margin style**, choose Botanical sprigs, Ledger rules, Art Deco diamonds
+or Celestial constellations. Choose **None** for a plain edge.
 **Focus Mode** clears the desk decorations. When the window has room, **Desk → Wider paper in Focus Mode** also widens the sheet.
 In **Top** mode, the capsule and rail move below the visible writing when you
 edit an earlier paragraph.
@@ -52,10 +64,8 @@ edit an earlier paragraph.
 
 ### macOS
 
-The v0.1.1 Mac download runs on Apple silicon with **macOS 13 Ventura or later**.
-For an Intel Mac on macOS 13 or later, [build the app on that Mac](#build-from-source).
-Unzip the download and drag **Inkrail.app** into **Applications**.
-[Download Inkrail.zip](https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail.zip)
+Inkrail v0.1.2 runs natively on Intel and Apple silicon Macs with **macOS 13 Ventura or later**. Choose the universal `Inkrail.zip` from the [GitHub releases](https://github.com/Aaryanverma/inkrail/releases), unzip it, and drag **Inkrail.app** into **Applications**.
+To check the architecture, select the app in Finder and press **⌘I**. Finder shows **Application (Universal)** under **Kind**.
 
 macOS may block this unnotarized build the first time you open it.
 
@@ -68,17 +78,16 @@ app once, then go to **System Settings → Privacy & Security** and choose
 
 ### Windows
 
-Get Inkrail from the [Microsoft Store](https://apps.microsoft.com/detail/9nq2fds73hpz) or use the portable x64 ZIP. Windows shows your processor architecture under **Settings → System → About → System type**.
+Get Inkrail from the [Microsoft Store](https://apps.microsoft.com/detail/9nq2fds73hpz) or choose a portable ZIP from the [GitHub releases](https://github.com/Aaryanverma/inkrail/releases). Check **Settings → System → About → System type** to find your PC’s architecture.
 
-| PC processor | Portable version |
+| PC processor | Portable ZIP |
 | --- | --- |
-| 64-bit Intel or AMD | [Inkrail-Windows-x64.zip](https://github.com/Aaryanverma/inkrail/releases/latest/download/Inkrail-Windows-x64.zip) |
-| ARM64, including Snapdragon | For native ARM64, [build the Windows ARM64 ZIP](docs/DEVELOPMENT.md#build-the-windows-zips). The [v0.1.1 release](https://github.com/Aaryanverma/inkrail/releases/tag/v0.1.1) ships the x64 ZIP. |
+| Intel or AMD x64 | `Inkrail-Windows-x64.zip` |
+| ARM64, including Snapdragon | `Inkrail-Windows-arm64.zip` |
 
-1. In File Explorer, right-click the downloaded ZIP and choose **Extract All**.
-2. Open **Inkrail.exe** in the extracted folder. Keep the whole folder together when moving the app.
-3. If Microsoft Defender SmartScreen shows **Windows protected your PC** on first launch, select **More info**. Then select **Run anyway** at the bottom of the same dialog to open Inkrail. Windows normally remembers this choice for that copy.
-4. If Inkrail reports a missing runtime, install the **Microsoft Edge WebView2 Evergreen Runtime** and reopen Inkrail. Once the runtime is installed, writing works offline. [Get WebView2 from Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/)
+Choose **Extract All** and open **Inkrail.exe** in the extracted folder. Keep the folder together if you move the app.
+If Microsoft Defender SmartScreen shows **Windows protected your PC** on first launch, select **More info**, then **Run anyway** to open the extracted app.
+If Inkrail asks for the Microsoft Edge WebView2 Evergreen Runtime, install it and reopen the app. [Get WebView2 from Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/)
 
 ## Build from source
 
@@ -130,8 +139,22 @@ and a space. For a list, use `-`, `*`, `+`, or a number followed by
 `.` or `)`, then a space. Quote and list markers stay visible.
 Markdown export keeps all three kinds of paragraph marker.
 
-Open **File** on Mac or the **…** menu on Windows (**Alt+F**). Choose **Export Markdown…**
-to keep formatting in a `.md` file, or **Export Text…** for plain text.
+### Sealing and exporting
+
+Choose **Seal letter…** at the foot of a letter with writing on it.
+Enter up to 24 characters, choose a round, oval, or scalloped impression and
+pick a wax color. **Apply seal** places it below your last line. Choose
+**Edit seal…** to change or remove it. The seal stays in place as you revise.
+Clearing all the writing also removes the seal. Undo restores both.
+
+Choose **Export Letter as PDF…** from the export button on the paper, the **File** menu on
+Mac, or the **…** menu on Windows (**Alt+F**). Every sheet keeps the paper,
+typeface, ink, Markdown styling and line wrapping. The first sheet carries the
+embossing and decorative margins you chose. A wax seal appears once, after the
+last line. PDF pages are flat, square-cornered and lit by daylight.
+
+Choose **Export Markdown…** to keep editing the formatting in a `.md` file, or
+**Export Text…** for plain text.
 To move a letter between Mac and Windows, export it as Markdown and import it on
 the other computer with **⌘O** on Mac or **Ctrl+O** on Windows.
 
@@ -145,7 +168,9 @@ the letter you last selected.
 To give a letter a private title, right-click it on Mac and choose **Rename…**.
 On Windows, use its pencil icon, right-click the letter, or press **F2** while
 the letter has keyboard focus. Clear the title to use the opening line again.
-Text and Markdown exports use the letter body and suggest a filename based on its opening line.
+Text and Markdown exports include the letter body and any seal inscription.
+Importing the Markdown copy into Inkrail also restores the seal’s shape and
+color. The suggested filename comes from the letter’s opening line.
 
 Inkrail saves letters locally. You can open the current library from within the app.
 
@@ -161,14 +186,6 @@ Inkrail saves letters locally. You can open the current library from within the 
   Inkrail removes the deleted letter when it next checks.
 
 Keep a separate backup of your library. [Storage & recovery on Mac and Windows →](docs/STORAGE.md)
-
-## In development
-
-Universal Mac packaging is in development for a single download that runs on Intel and Apple silicon. The following stationery features are also in development for Mac and Windows. The v0.1.1 downloads offer Markdown and plain-text export.
-
-- **Wax seals.** A letter can carry a round, oval or scalloped seal with a wax color and an inscription of up to 24 characters. Markdown export and import preserve the seal. Plain text includes its inscription.
-- **PDF export.** The PDF preserves line wrapping, paper, type, ink and Markdown styling. The first sheet carries the embossing and decorative margins. The last sheet carries the seal.
-- **Paper details.** Maker’s mark presses the carriage initials into the paper at 70% relief by default. Margin styles include Botanical, Ledger, Art Deco and Celestial, with a plain-edge option.
 
 ## Sound credits
 

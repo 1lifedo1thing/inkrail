@@ -9,7 +9,9 @@
     lamp: { file: 'inkrail-night-lamp.png', alt: 'Inkrail at night, with two bronze desk lamps casting warm light beside the writing page', heroCaption: 'For the ideas that arrive after sunset.', galleryCaption: 'Lamps on. World off.' },
     focus: { file: 'inkrail-focus-mode.png', alt: 'Inkrail Focus Mode, with a wider plain writing page and no desk decorations', heroCaption: 'Nothing between you and the words.', galleryCaption: 'Just a blank page and a thought.' },
     desk: { file: 'inkrail-desk-customization.png', alt: 'Inkrail Make it yours settings, showing desk finishes, paired lamps, and live preview', galleryCaption: 'Your own little corner of the world.' },
-    machine: { file: 'inkrail-machine-customization.png', alt: 'Inkrail machine customization settings showing twelve typewriter carriage styles', galleryCaption: 'Twelve small machines, each with its own character.' }
+    machine: { file: 'inkrail-machine-customization.png', alt: 'Inkrail machine customization settings showing twelve typewriter carriage styles', galleryCaption: 'Twelve small machines, each with its own character.' },
+    makersMark: { file: 'inkrail-makers-mark.png', alt: 'The IR maker’s mark pressed into a sheet beside the typewriter carriage', galleryCaption: 'The carriage initials pressed into the paper.' },
+    embossings: { file: 'inkrail-paper-embossings.png', alt: 'Botanical, Monogram, Sunburst, and Maker’s mark impressions shown in daylight and night writing', galleryCaption: 'Four paper embossings in day and night light.' }
   };
 
   const heroImage = document.getElementById('hero-image');
@@ -74,7 +76,7 @@
       switchImage(galleryImage, MEDIA + images[key].file, request, () => galleryRequest, () => {
         galleryImage.alt = images[key].alt;
         galleryCaption.textContent = images[key].galleryCaption;
-        galleryCounter.textContent = String(index + 1).padStart(2, '0') + ' — 06';
+        galleryCounter.textContent = String(index + 1).padStart(2, '0') + ' — ' + String(galleryButtons.length).padStart(2, '0');
       });
     });
     button.addEventListener('keydown', event => {
@@ -143,35 +145,26 @@
     });
   });
 
-  // Keep historical downloads usable until the next release includes each asset.
-  const API = 'https://api.github.com/repos/Aaryanverma/inkrail/releases?per_page=100';
-  const releaseDownloads = 'https://github.com/Aaryanverma/inkrail/releases/download/';
-  function updateDownload(releases, platform, filename) {
-    const release = releases.find(item =>
-      !item.draft && !item.prerelease &&
-      item.assets.some(asset => asset.name === filename && asset.state === 'uploaded')
-    );
-    if (!release) return;
-
-    const url = releaseDownloads + encodeURIComponent(release.tag_name) + '/' + filename;
-    document.querySelectorAll('[data-download="' + platform + '"]').forEach(link => {
-      link.href = url;
-      const armLabel = link.querySelector('[data-arm-label]');
-      if (armLabel) armLabel.textContent = 'Download for Windows ARM64';
-    });
-    if (platform === 'mac') {
-      document.querySelector('[data-release-version]').textContent = release.tag_name;
-    }
-  }
+  // Keep the releases page as the fallback until this edition's asset exists.
+  const version = document.querySelector('[data-release-version]').textContent.trim();
+  const repository = 'Aaryanverma/inkrail';
   const controller = new AbortController();
   const fetchTimeout = setTimeout(() => controller.abort(), 6500);
-  fetch(API, { headers: { Accept: 'application/vnd.github+json' }, signal: controller.signal })
-    .then(res => { if (!res.ok) throw new Error('GitHub API is unavailable'); return res.json(); })
-    .then(releases => {
-      updateDownload(releases, 'mac', 'Inkrail.zip');
-      updateDownload(releases, 'windows-x64', 'Inkrail-Windows-x64.zip');
-      updateDownload(releases, 'windows-arm64', 'Inkrail-Windows-arm64.zip');
+  fetch('https://api.github.com/repos/' + repository + '/releases/tags/' + encodeURIComponent(version), {
+    headers: { Accept: 'application/vnd.github+json' }, signal: controller.signal
+  })
+    .then(response => response.ok ? response.json() : null)
+    .then(release => {
+      if (!release || release.draft || release.prerelease || release.tag_name !== version) return;
+      const uploaded = new Set(release.assets.filter(asset => asset.state === 'uploaded').map(asset => asset.name));
+      document.querySelectorAll('[data-asset]').forEach(link => {
+        const filename = link.dataset.asset;
+        if (uploaded.has(filename)) {
+          link.href = 'https://github.com/' + repository + '/releases/download/' +
+            encodeURIComponent(version) + '/' + encodeURIComponent(filename);
+        }
+      });
     })
-    .catch(() => { /* Static links still lead to the Mac and x64 downloads and the public release page. */ })
+    .catch(() => { /* Keep the release chooser when GitHub is unavailable. */ })
     .finally(() => clearTimeout(fetchTimeout));
 })();

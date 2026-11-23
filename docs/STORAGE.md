@@ -2,7 +2,7 @@
 
 [Back to the user guide](../README.md#your-letters)
 
-Inkrail saves your library locally. **Make it yours → Storage** shows the
+Inkrail v0.1.2 saves your library locally. **Make it yours → Storage** shows the
 current folder, including a custom location.
 
 | Platform | Default library folder | Open the current folder |
@@ -12,12 +12,12 @@ current folder, including a custom location.
 
 To move one letter between Mac and Windows, choose **File → Export Markdown…**
 on Mac. On Windows, press **Alt+F** and choose **Export Markdown…**. Import the saved
-`.md` file with **⌘O** on Mac or **Ctrl+O** on Windows. Use **Export Text…**
-for a plain-text copy.
-
-PDF export and wax seals are in development. In the development version,
-the PDF keeps the finished stationery and seal. Markdown preserves the seal’s
-inscription, shape and color when imported into another build that supports seals.
+`.md` file with **⌘O** on Mac or **Ctrl+O** on Windows. Markdown preserves
+the formatting and a wax seal’s inscription, shape and color when you reimport
+the letter into Inkrail. **Export Text…** saves plain text, including the seal
+inscription. **Export Letter as PDF…** preserves the finished stationery and
+line wrapping, with embossing and decorative margins on the first sheet and
+the seal after the last line.
 
 ## Choose a different folder
 
