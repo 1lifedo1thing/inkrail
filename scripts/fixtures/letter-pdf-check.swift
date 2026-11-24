@@ -20,7 +20,8 @@ private func require(_ condition: Bool, _ message: String) throws {
 
 // Raster checks inspect what the PDF paints, including decorations that never
 // appear in its text layer. Sample at one pixel per PDF point.
-private func pixels(on page: PDFPage) throws -> [UInt8] {
+private func pixels(in document: PDFDocument, at index: Int = 0) throws -> [UInt8] {
+    guard let page = document.page(at: index) else { throw Failure("Missing PDF page \(index)") }
     let bounds = page.bounds(for: .mediaBox)
     let width = Int(bounds.width.rounded()), height = Int(bounds.height.rounded())
     guard let pdf = page.pageRef,
@@ -56,19 +57,20 @@ private func printedFont(for word: String, in text: NSAttributedString) throws -
     static let output = URL(fileURLWithPath: CommandLine.arguments[1])
     static let sheet = CGSize(width: 610, height: 800)
 
-    static func export(_ page: Page, _ preferences: WritingPreferences, name: String) throws -> [PDFPage] {
+    static func export(_ page: Page, _ preferences: WritingPreferences, name: String) throws -> PDFDocument {
         let data = try LetterPDFExport.data(for: page, preferences: preferences, paperSize: sheet)
         try data.write(to: output.appendingPathComponent(name + ".pdf"))
         guard let document = PDFDocument(data: data), document.pageCount > 0 else {
             throw Failure("\(name): output was not a readable PDF")
         }
-        return try (0..<document.pageCount).map { index in
+        for index in 0..<document.pageCount {
             guard let page = document.page(at: index) else { throw Failure("\(name): missing page \(index)") }
             let bounds = page.bounds(for: .mediaBox)
             try require(bounds.width == sheet.width && bounds.height == sheet.height,
                         "\(name): sheet size differs from the writing desk, \(bounds.size)")
-            return page
         }
+        // PDFPage holds a weak reference to its document. Keep the owner for text and artwork checks.
+        return document
     }
 
     static func checkWrapping(focus: Bool, preferences: WritingPreferences) throws -> Int {
@@ -115,12 +117,12 @@ private func printedFont(for word: String, in text: NSAttributedString) throws -
         preferences.wideMargins = false
         preferences.textureStrength = 0
         let letter = Page(markdown: "Dear Ada,\n\nI found your letter waiting on the writing desk.")
-        let plain = try pixels(on: export(letter, preferences, name: "margin-none")[0])
+        let plain = try pixels(in: export(letter, preferences, name: "margin-none"))
         let width = Int(sheet.width), inset = Int(preferences.writingMargin)
         var silhouettes: [PaperMarginStyle: Set<Int>] = [:]
         for style in PaperMarginStyle.allCases where style != .none {
             preferences.marginStyle = style
-            let decorated = try pixels(on: export(letter, preferences, name: "margin-" + style.rawValue)[0])
+            let decorated = try pixels(in: export(letter, preferences, name: "margin-" + style.rawValue))
             let ink = Set((0..<(plain.count / 4)).filter { pixel in
                 let offset = pixel * 4
                 return (0..<3).contains { abs(Int(decorated[offset + $0]) - Int(plain[offset + $0])) > 4 }
@@ -158,12 +160,14 @@ private func printedFont(for word: String, in text: NSAttributedString) throws -
         var letter = Page(markdown: "# Garden notes\n\nDear Ada,\n\nThe **roses** and *violets* have bloomed.\n\nYours,\nMira")
         letter.seal = LetterSeal(text: "M. A.", shape: .oval, color: .oxblood)
         let short = try export(letter, preferences, name: "garden-notes")
-        try require(short.count == 1, "A short letter should fit on one sheet")
-        let printed = short[0].string ?? ""
+        try require(short.pageCount == 1, "A short letter should fit on one sheet")
+        let printed = short.string ?? ""
         try require(printed.contains("Garden notes") && printed.contains("violets") && printed.contains("Mira"),
                     "The PDF lost the heading, body, or closing")
         try require(!printed.contains("#") && !printed.contains("*"), "Markdown source markers appeared on the page")
-        guard let styled = short[0].attributedString else { throw Failure("The PDF has no formatted text") }
+        guard let styled = short.selectionForEntireDocument?.attributedString else {
+            throw Failure("PDFKit could not read the formatted text in garden-notes.pdf")
+        }
         let bodyFont = try printedFont(for: "Dear Ada", in: styled)
         let expectedFont = preferences.writingFont.nsFont(size: preferences.fontSize)
         try require(bodyFont.familyName == expectedFont.familyName && bodyFont.pointSize == expectedFont.pointSize,
@@ -175,22 +179,22 @@ private func printedFont(for word: String, in text: NSAttributedString) throws -
         try require(NSFontManager.shared.traits(of: bold).contains(.boldFontMask)
                     && NSFontManager.shared.traits(of: italic).contains(.italicFontMask),
                     "The PDF lost an inline Markdown style")
-        let shortPixels = try pixels(on: short[0])
+        let shortPixels = try pixels(in: short)
         try require(redWaxPixels(shortPixels) > 1_000, "The seal was missing from the rendered letter")
 
         var worn = preferences
         worn.wornInk = true
-        let wornPage = try export(letter, worn, name: "worn-ink")[0]
-        try require(wornPage.string == printed, "Ink overprints changed the selectable text")
-        try require(try pixels(on: wornPage) != shortPixels, "The worn ink effect was lost")
+        let wornLetter = try export(letter, worn, name: "worn-ink")
+        try require(wornLetter.string == printed, "Ink overprints changed the selectable text")
+        try require(try pixels(in: wornLetter) != shortPixels, "The worn ink effect was lost")
 
         let blank = try export(Page(), preferences, name: "blank-letter")
-        try require(blank.count == 1 && (blank[0].string ?? "").isEmpty,
+        try require(blank.pageCount == 1 && (blank.string ?? "").isEmpty,
                     "An empty letter should export as one blank sheet")
-        try require(redWaxPixels(try pixels(on: blank[0])) == 0, "An unsealed letter gained a seal")
+        try require(redWaxPixels(try pixels(in: blank)) == 0, "An unsealed letter gained a seal")
         var unembossed = preferences
         unembossed.paperEmbossing = .none
-        let other = try pixels(on: export(letter, unembossed, name: "no-embossing")[0])
+        let other = try pixels(in: export(letter, unembossed, name: "no-embossing"))
         let embossPixels = stride(from: 0, to: other.count, by: 4).filter {
             abs(Int(other[$0]) - Int(shortPixels[$0])) > 2
         }.count
@@ -203,20 +207,20 @@ private func printedFont(for word: String, in text: NSAttributedString) throws -
         preferences.paperMotion = .roll
         preferences.paperStartPosition = .bottom
         preferences.curvedPaper = true
-        let pages = try export(journal, preferences, name: "long-letter")
-        try require(pages.count > 1, "The long letter was clipped to one page")
-        let combined = pages.map { $0.string ?? "" }.joined(separator: "\n")
+        let rollDocument = try export(journal, preferences, name: "long-letter")
+        try require(rollDocument.pageCount > 1, "The long letter was clipped to one page")
+        let combined = rollDocument.string ?? ""
         let tokens = combined.components(separatedBy: .whitespacesAndNewlines).filter { $0.hasPrefix("Entry") }
         try require(tokens == entries, "PDF pagination skipped, duplicated, or reordered text")
         var sheetDesk = preferences
         sheetDesk.paperMotion = .sheet
         sheetDesk.curvedPaper = false
-        let sheetPages = try export(journal, sheetDesk, name: "long-letter-desk-flat")
-        try require(sheetPages.count == pages.count, "Rolling the desk paper changed PDF pagination")
+        let sheetDocument = try export(journal, sheetDesk, name: "long-letter-desk-flat")
+        try require(sheetDocument.pageCount == rollDocument.pageCount, "Rolling the desk paper changed PDF pagination")
         let width = Int(sheet.width), height = Int(sheet.height)
-        for (index, page) in pages.enumerated() {
-            let image = try pixels(on: page)
-            try require(try pixels(on: sheetPages[index]) == image,
+        for index in 0..<rollDocument.pageCount {
+            let image = try pixels(in: rollDocument, at: index)
+            try require(try pixels(in: sheetDocument, at: index) == image,
                         "The on-desk curl or roller changed the exported artwork on page \(index + 1)")
             for y in [0, height - 1] {
                 for x in [0, width - 1] {
@@ -237,10 +241,10 @@ private func printedFont(for word: String, in text: NSAttributedString) throws -
                 }
             }
             let sealPixels = redWaxPixels(image)
-            try require(index == pages.count - 1 ? sealPixels > 1_000 : sealPixels == 0,
+            try require(index == rollDocument.pageCount - 1 ? sealPixels > 1_000 : sealPixels == 0,
                         "The wax seal was missing or appeared before the end (page \(index + 1))")
         }
-        print("PASS: short letter styling, embossing, and \(pages.count) complete sheets with a single closing seal.")
+        print("PASS: short letter styling, embossing, and \(rollDocument.pageCount) complete sheets with a single closing seal.")
         print("PASS: square, edge-to-edge stationery in Sheet and Roll modes.")
         print("PASS: PDF wrapping matches the live editor on regular (\(regularLines) lines) and wider Focus paper (\(focusLines) lines).")
     }

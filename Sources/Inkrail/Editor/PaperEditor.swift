@@ -601,7 +601,9 @@ struct PaperEditor: NSViewRepresentable {
             if parent.onRestoreSeal != nil, page.id == loadedID, let seal = page.seal,
                editor.string.allSatisfy(\.isWhitespace) {
                 guard !editor.hasMarkedText() else { return }
-                editor.undoManager?.registerUndo(withTarget: self) { $0.sealToRestore = seal }
+                editor.undoManager?.registerUndo(withTarget: self) { coordinator in
+                    MainActor.assumeIsolated { coordinator.sealToRestore = seal }
+                }
             }
             parent.onChange(loadedID, editor.string, knownFormatting)
             if editor.undoManager?.isUndoing == true || editor.undoManager?.isRedoing == true {
