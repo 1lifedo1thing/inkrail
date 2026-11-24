@@ -220,6 +220,34 @@ try {
     if (([IO.File]::ReadAllText($letterPath) | ConvertFrom-Json).text -ne 'Pending local edit') {
         throw 'Autosave dropped the conflicted edit instead of retrying it.'
     }
+
+    Click-Desk '[data-action=night]'
+    Click-Desk '[data-action=settings]'
+    Click-Desk '[data-tab=machine]'
+    Click-Desk '[data-choice-val=brushedSteel]'
+    Wait-Desk @'
+(() => {
+    const art = '.ink-desk__capsule[data-style=brushedSteel] .ink-desk__capsule-art';
+    const live = document.querySelector('#desk ' + art);
+    if (!live?.childElementCount) return false;
+    const liveStyle = getComputedStyle(live);
+    return ['[data-choice-val=brushedSteel]', '.ip-preview-machine'].every(selector => {
+        const preview = document.querySelector(selector + ' ' + art);
+        if (!preview || preview.innerHTML !== live.innerHTML) return false;
+        const capsule = preview.closest('.ink-desk__capsule');
+        const housing = capsule.querySelector('.ink-desk__housing').getBoundingClientRect();
+        const hammer = capsule.querySelector('.ink-desk__hammer').getBoundingClientRect();
+        const frame = preview.closest('.ip-preview').getBoundingClientRect();
+        const artwork = preview.getBoundingClientRect();
+        const previewStyle = getComputedStyle(preview);
+        return artwork.width > 0 && Math.abs(artwork.width - housing.width) < 1 && Math.abs(artwork.height - housing.height) < 1 &&
+            hammer.top >= frame.top && housing.bottom <= frame.bottom && housing.left >= frame.left && housing.right <= frame.right &&
+            capsule.querySelector('.ink-desk__emitter').getClientRects().length > 0 &&
+            previewStyle.fill === liveStyle.fill && previewStyle.stroke === liveStyle.stroke;
+    });
+})()
+'@
+    Click-Desk 'dialog[open] .ip-header button'
     Close-Desk
 
     $freshProfile = Join-Path $testProfile 'First launch'
@@ -275,7 +303,7 @@ Object.defineProperty(document.fonts, 'ready', {
         mechanismStyle = 'walnut'; matchRailToStyle = $true
         soundVolume = 0.55; nightMode = $false; lampIntensity = 0.85; lampWarmth = 0.55
     }
-    Write-Output 'PASS: first launch, legacy library, preferences, formatting, rename, trash, restore, independent autosaves, PDF close handling, and reopen.'
+    Write-Output 'PASS: first launch, legacy library, preferences, machine previews, formatting, rename, trash, restore, independent autosaves, PDF close handling, and reopen.'
     Write-Output ("Disposable profile (safe to remove after inspection): " + $testProfile)
 } finally {
     if ($script:socket) { $script:socket.Dispose() }

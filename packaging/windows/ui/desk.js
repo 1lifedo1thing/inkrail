@@ -777,21 +777,26 @@ export function mountDeskPreview(root, settings = {}, mode = 'desk') {
   const container=document.createElement('div');
   container.className='ink-desk__preview'; root.append(container);
   const noCapsule=mode==='desk';
+  const machine=mode==='machine';
+  const carriageFraction={machine:.5,paper:.52}[mode] ?? .55;
   let prefs={...defaults,...settings};
   let desk, logicalKey='';
   function render(){
     const {width,height}=root.getBoundingClientRect();
     if(!width||!height)return;
-    const logicalWidth=mode==='desk'?1080:mode==='machine'?360:width;
-    const scale=width/logicalWidth, logicalHeight=mode==='desk'?Math.max(400,height/scale):height/scale;
+    let scale=1;
+    if(mode==='desk') scale=width/1080;
+    // Fit the full hammer and capsule in a tile, keeping the large preview at desk scale.
+    if(machine) scale=Math.min(1,height/108,width/154);
+    const logicalWidth=width/scale, logicalHeight=mode==='desk'?Math.max(400,height/scale):height/scale;
+    container.style.transform=`scale(${scale})`;
     const key=`${logicalWidth}:${logicalHeight}`;
     if(logicalKey!==key){
       logicalKey=key;const sampleNodes=desk?[...desk.surface.childNodes]:[];desk?.destroy();
       container.style.width=logicalWidth+'px';container.style.height=logicalHeight+'px';
-      container.style.transform=`scale(${scale})`;
-      desk=mountDesk(container,{preview:true,noCapsule,noVeil:mode==='paper',fullWidth:mode!=='desk',width:logicalWidth,height:logicalHeight,
+      desk=mountDesk(container,{preview:true,noCapsule,noVeil:mode==='paper'||machine,fullWidth:mode!=='desk',width:logicalWidth,height:logicalHeight,
         paperHeight:mode==='desk'?Math.max(180,logicalHeight-42):logicalHeight,
-        carriage:g=>({x:g.paperWidth*(mode==='paper'?.52:.55),
+        carriage:g=>({x:g.paperWidth*carriageFraction,
           y:mode==='paper'?Math.min(g.paperHeight-20,prefs.paperStartPosition==='bottom'?158:128)
             :mode==='lamp'?g.paperHeight-42:g.paperHeight*.56})});
       container.firstElementChild.dataset.previewMode=mode;
@@ -804,7 +809,7 @@ export function mountDeskPreview(root, settings = {}, mode = 'desk') {
     }
     desk.update({...prefs,focusMode:false,
       ...(mode!=='desk'?{deskAccent:'none',deskFinish:'charcoal'}:{}),
-      ...(mode==='machine'?{nightMode:false,curvedPaper:false}:{})});
+      ...(machine?{curvedPaper:false,paperEmbossing:'none',marginStyle:'none'}:{})});
     if(mode==='paper')desk.showCapsule(prefs.paperMotion==='roll');
   }
   const observer=new ResizeObserver(render);observer.observe(root);render();

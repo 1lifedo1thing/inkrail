@@ -19,7 +19,7 @@
 .ip-dialog p,.ip-dialog h2,.ip-dialog h3{margin:0;}
 .ip-dialog h2{font:bold 24px/1.16 var(--ip-mono);}
 .ip-dialog h3{font:bold 17px/1.25 var(--ip-mono);}
-.ip-dialog svg{display:block;width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none;}
+.ip-glyph{display:block;width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none;}
 .ip-header{display:flex;gap:16px;justify-content:space-between;align-items:flex-start;padding:25px 30px 24px;flex:none;}
 .ip-header p{color:var(--ip-muted);margin-top:7px;}
 .ip-plain,.ip-emphasis{margin:0;padding:5px 9px;border:1px solid transparent;border-radius:5px;background:transparent;}
