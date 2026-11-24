@@ -84,7 +84,8 @@ private struct NativeRollScene: View {
                         onStroke: { _ in })
                 .frame(width: width, height: editorHeight)
             if preferences.nightMode {
-                NightLighting(size: size, headX: headX, railY: railY, preferences: preferences)
+                NightLighting(size: size, headX: headX, railY: railY, preferences: preferences,
+                              feedOffset: caret.scrollOffset)
             }
             RailView(finish: preferences.effectiveRailFinish, style: preferences.mechanismStyle)
                 .frame(width: width + 4)

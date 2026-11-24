@@ -110,7 +110,7 @@ final class InkrailCoreTests: XCTestCase {
         XCTAssertEqual(p.fontSize, 28)
         XCTAssertEqual(p.soundVolume, 0)
         XCTAssertEqual(p.inkStrength, 0.88)
-        XCTAssertEqual(p.lampWarmth, 0.65)
+        XCTAssertEqual(p.lampWarmth, 0.55)
     }
     func testPreferencesRoundTrip() throws {
         var p = WritingPreferences(); p.capsule = .cobalt; p.nightMode = true

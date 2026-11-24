@@ -80,10 +80,9 @@ public enum MechanismStyle: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// Unknown future styles degrade to Classic without discarding all preferences.
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)
-        self = Self(rawValue: value) ?? .classic
+        self = Self(rawValue: value) ?? WritingPreferences.defaults.mechanismStyle
     }
 }
 

@@ -105,6 +105,11 @@ Paper textures are **Classic**, **Smooth**, **Laid** and **Cotton**. Use
 **Margin style** offers **None**, **Botanical**, **Ledger**, **Art Deco** and **Celestial**.
 Use **Wide margins** to adjust the writing area independently of the decoration.
 
+The desk, app icons and website share the lettering in [inkrail-mark.svg](assets/inkrail-mark.svg).
+After editing the lettering or keytop artwork, run `python3 scripts/generate-logo.py` with
+ImageMagick 7, Pillow and NumPy installed to update the bundled PNGs, GitHub Pages app icon,
+and Windows icon.
+
 The typefaces are **Courier**, **American Typewriter**, **Menlo**, **Georgia**,
 **Courier New**, **Typewriter Light**, **Typewriter Condensed** and **Monaco**.
 The Mac app uses American Typewriter's Light and Condensed faces when installed.

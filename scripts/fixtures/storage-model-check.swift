@@ -25,6 +25,7 @@ import InkrailCore
         defer { try? fm.removeItem(at: temporary) }
         try formattingSurvivesRestart(in: temporary)
         try privateTitles(in: temporary)
+        try letterSeals(in: temporary)
         checkLetterPreviews()
         checkMarkdownExport()
         checkInlineMarkdownShortcuts()
@@ -87,6 +88,26 @@ import InkrailCore
         let styledBlocks = Page(text: blocks, formatting: [TextFormatRun(location: 0, length: blocks.utf16.count, emphasis: .bold)])
         check(styledBlocks.markdownText == "# **title**\n> - **item**\n```\n*literal*\n```",
               "whole-line styling preserves heading, nested quote/list markers and fenced examples")
+
+        var sealed = Page(text: "Love,\r\n", formatting: [TextFormatRun(location: 0, length: 4, emphasis: .italic)])
+        sealed.seal = LetterSeal(text: "A < B & 👩🏽‍🎨 **", shape: .scalloped, color: .plum)
+        let footer = #"<p data-inkrail-seal="scalloped plum">✦ A &lt; B &amp; 👩🏽‍🎨 ** ✦</p>"#
+        check(sealed.plainText == "Love,\r\n\n\n✦ A < B & 👩🏽‍🎨 ** ✦", "text export includes a literal seal inscription")
+        check(sealed.markdownText == "*Love*,\r\n\n\n" + footer, "Markdown exports a visible HTML-safe inscription")
+        let reopened = Page(markdown: sealed.markdownText)
+        check(reopened.seal == sealed.seal && reopened.text == sealed.text && reopened.formatting == sealed.formatting,
+              "a formatted letter and its seal round trip independently")
+        let invalid = "Dear reader,\n\n" + footer.replacingOccurrences(of: "scalloped", with: "unknown")
+            .replacingOccurrences(of: "👩🏽‍🎨 **", with: "**reader**")
+        check(Page(markdown: invalid).seal == nil && Page(markdown: invalid).text == invalid,
+              "unrecognized seal markup stays in the letter body")
+        let example = "~~~~html\nA literal seal footer\n\n" + footer
+        check(Page(markdown: example).seal == nil && Page(markdown: example).text == example,
+              "seal markup inside an open code fence stays literal")
+        let sealedExample = Page(text: example, seal: LetterSeal(text: "&lt; © &amp;"))
+        let importedExample = Page(markdown: sealedExample.markdownText)
+        check(importedExample.text == example && importedExample.seal == sealedExample.seal,
+              "sealing a letter ending in a code example preserves its fence and literal entities")
     }
 
     static func checkInlineMarkdownShortcuts() {
@@ -206,6 +227,78 @@ import InkrailCore
         let repaired = try repository.load().pages.first { $0.id == model.selectedID }
         check(repaired?.text == words && repaired?.formatting == [word],
               "invalid UTF-16 ranges leave the letter and its valid emphasis readable")
+    }
+
+    static func letterSeals(in temporary: URL) throws {
+        let root = temporary.appendingPathComponent("Sealed letters")
+        let defaults = MemoryDefaults()
+        let model = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+        model.createPage(text: "Dear Ria,\nLove from home.")
+        let firstID = model.selectedID!
+        let format = [TextFormatRun(location: 5, length: 3, emphasis: .italic)]
+        model.edit(firstID, text: model.currentText, formatting: format)
+        let original = model.selectedPage!
+        let seal = LetterSeal(text: "With love", shape: .oval, color: .forest)
+        model.openSealEditor()
+        check(model.sealEditorPage?.id == firstID, "the seal editor opens for the selected letter")
+        model.setSeal(seal, for: firstID)
+        check(model.isDirty && model.flush(), "applying a seal saves the letter")
+        model.createPage(text: "   ")
+        model.openSealEditor()
+        let blankID = model.selectedID!
+        model.setSeal(seal, for: blankID)
+        model.setSeal(nil, for: firstID)
+        check(model.sealEditorPage == nil && model.selectedPage?.seal == nil && !model.isDirty,
+              "switching dismisses the seal editor and rejects stale or blank-letter changes")
+
+        let reopened = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+        reopened.select(firstID)
+        let saved = reopened.selectedPage!
+        check(saved.seal == seal && saved.text == original.text && saved.formatting == original.formatting &&
+              saved.wordCount == original.wordCount && saved.characterCount == original.characterCount,
+              "a seal survives restart on its own letter without changing its writing, formatting, or counts")
+        let revised = LetterSeal(text: "R & A", shape: .scalloped, color: .navy)
+        reopened.setSeal(revised, for: firstID)
+        reopened.moveToTrash(firstID)
+        check(reopened.deletedPages().first { $0.id == firstID }?.seal == revised, "an edited seal follows its letter into trash")
+        reopened.restore(firstID)
+        reopened.select(firstID)
+        check(reopened.selectedPage?.seal == revised, "restoring the letter restores its edited seal")
+        reopened.setSeal(nil, for: firstID)
+        check(reopened.isDirty && reopened.flush(), "removing a seal saves the change")
+
+        let file = try PageRepository(rootURL: root).fileURL(for: firstID)
+        var legacy = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        check(legacy["seal"] == nil, "letters without a seal keep the original saved format")
+        let whitespace = "\n\t\u{00A0}"
+        for blank in ["", whitespace] {
+            reopened.edit(firstID, text: "One last line.")
+            reopened.setSeal(revised, for: firstID)
+            reopened.edit(firstID, text: "Another closing.")
+            check(reopened.selectedPage?.seal == revised, "replacing the writing keeps the seal")
+            reopened.edit(firstID, text: blank)
+            check(reopened.selectedPage?.seal == nil && reopened.selectedPage?.markdownText == blank && reopened.flush(),
+                  "clearing the writing removes the seal from the letter, export and save")
+            let reader = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+            check(reader.selectedPage?.id == firstID && reader.selectedPage?.canApplySeal == false && reader.selectedPage?.seal == nil,
+                  "reopened blank letters stay unsealed")
+            reopened.edit(firstID, text: "A new beginning.")
+            check(reopened.selectedPage?.seal == nil && reopened.flush(), "new writing starts without the cleared seal")
+        }
+        for metadata: Any? in [nil, ["text": "Unknown wax", "shape": "unknown", "color": "navy"], 4] {
+            legacy["seal"] = metadata
+            try JSONSerialization.data(withJSONObject: legacy).write(to: file, options: .atomic)
+            let reader = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false)
+            check(reader.selectedPage?.id == firstID && reader.selectedPage?.seal == nil &&
+                  reader.selectedPage?.text == original.text && reader.selectedPage?.formatting == format,
+                  "missing or unreadable seal metadata leaves the saved letter intact")
+        }
+        legacy["text"] = whitespace
+        legacy["seal"] = ["text": "With love", "shape": "oval", "color": "forest"]
+        try JSONSerialization.data(withJSONObject: legacy).write(to: file, options: .atomic)
+        let oldBlank = AppModel(defaults: defaults, defaultRootURL: root, schedulesAutosave: false).selectedPage
+        check(oldBlank?.text == whitespace && oldBlank?.seal == nil && oldBlank?.plainText == whitespace,
+              "opening an older blank sealed letter keeps its whitespace and clears the stale seal")
     }
 
     static func privateTitles(in temporary: URL) throws {

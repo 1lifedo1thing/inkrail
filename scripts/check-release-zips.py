@@ -44,16 +44,37 @@ def check_no_screenshots(archive, screenshots):
                 raise ValueError(f"{archive.filename}: {entry.filename} contains {source.name}")
 
 
+def check_universal_executable(archive, executable):
+    if not (executable.external_attr >> 16) & 0o111:
+        raise ValueError("Inkrail.zip: the app binary is missing its executable permission")
+
+    # mach-o/fat.h uses big-endian headers with either 32- or 64-bit file offsets.
+    arch_records = {0xCAFEBABE: struct.Struct(">IIIII"), 0xCAFEBABF: struct.Struct(">IIQQII")}
+    with archive.open(executable) as binary:
+        magic, count = struct.unpack(">II", binary.read(8))
+        if magic not in arch_records or count != 2:
+            raise ValueError("Inkrail.zip: expected a universal app for x86_64 and arm64")
+        record = arch_records[magic]
+        slices = list(record.iter_unpack(binary.read(count * record.size)))
+        if {entry[0] for entry in slices} != {0x01000007, 0x0100000C}:  # x86_64, arm64
+            raise ValueError("Inkrail.zip: expected both x86_64 and arm64 slices")
+        for cpu, _, offset, size, *_ in slices:
+            if size < 32 or offset + size > executable.file_size:
+                raise ValueError("Inkrail.zip: truncated Mach-O slice")
+            binary.seek(offset)
+            # Both architectures use little-endian 64-bit Mach-O executables (MH_EXECUTE).
+            magic, inner_cpu, _, file_type = struct.unpack("<IIII", binary.read(16))
+            if (magic, inner_cpu, file_type) != (0xFEEDFACF, cpu, 2):
+                raise ValueError("Inkrail.zip: invalid Mach-O executable slice")
+
+
 def check_mac(directory, resources, screenshots):
     with ZipFile(directory / "Inkrail.zip") as archive:
         check_no_screenshots(archive, screenshots)
         contents = "Inkrail.app/Contents/"
         plist = plistlib.loads(archive.read(contents + "Info.plist"))
         executable = archive.getinfo(contents + "MacOS/" + plist["CFBundleExecutable"])
-        with archive.open(executable) as binary:
-            # The macOS release runner builds a 64-bit Apple silicon Mach-O.
-            if binary.read(8) != bytes.fromhex("cffaedfe0c000001") or not executable.external_attr >> 16 & 0o111:
-                raise ValueError("Inkrail.zip: expected an executable Apple silicon app")
+        check_universal_executable(archive, executable)
         check_contents(archive, contents + "Resources/LICENSE.txt", ROOT / "LICENSE")
         bundle = contents + "Resources/Inkrail_Inkrail.bundle/"
         if bundle + "Contents/Info.plist" in archive.namelist():
@@ -133,7 +154,7 @@ def main():
     arm64_notices = check_windows(args.directory, "arm64", expected, screenshots)
     if x64_notices != arm64_notices:
         raise ValueError("The two Windows releases contain different runtime notices")
-    print("Verified the macOS app, native x64 and ARM64 hosts, Windows manifests, "
+    print("Verified the universal macOS app, native x64 and ARM64 hosts, Windows manifests, "
           "and the shared editor, fonts, artwork, sounds and credits.")
 
 

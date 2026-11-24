@@ -29,8 +29,17 @@ public struct Page: Identifiable, Codable, Equatable, Sendable {
     public let createdAt: Date
     public var modifiedAt: Date
     public private(set) var privateTitle: String?
+    private var storedSeal: LetterSeal?
+    public var seal: LetterSeal? {
+        get { storedSeal }
+        set { storedSeal = newValue != nil && canApplySeal ? newValue : nil }
+    }
+    public var canApplySeal: Bool { text.contains { !$0.isWhitespace } }
     public var text: String {
-        didSet { storedFormatting = nil }
+        didSet {
+            storedFormatting = nil
+            if storedSeal != nil && !canApplySeal { storedSeal = nil }
+        }
     }
     private var storedFormatting: [TextFormatRun]?
     public var formatting: [TextFormatRun] {
@@ -42,16 +51,18 @@ public struct Page: Identifiable, Codable, Equatable, Sendable {
     }
 
     public init(id: UUID = UUID(), createdAt: Date = Date(), modifiedAt: Date? = nil,
-                text: String = "", formatting: [TextFormatRun] = []) {
+                text: String = "", formatting: [TextFormatRun] = [], seal: LetterSeal? = nil) {
         self.id = id
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt ?? createdAt
         self.text = text
         self.formatting = formatting
+        self.seal = seal
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, createdAt, modifiedAt, text, privateTitle
+        case storedSeal = "seal"
         case storedFormatting = "formatting"
     }
 
@@ -64,7 +75,8 @@ public struct Page: Identifiable, Codable, Equatable, Sendable {
                   createdAt: try values.decode(Date.self, forKey: .createdAt),
                   modifiedAt: try values.decode(Date.self, forKey: .modifiedAt),
                   text: try values.decode(String.self, forKey: .text),
-                  formatting: formatting)
+                  formatting: formatting,
+                  seal: try? values.decode(LetterSeal.self, forKey: .storedSeal))
         if let title = try? values.decode(String.self, forKey: .privateTitle) {
             setPrivateTitle(title)
         }
@@ -160,10 +172,9 @@ public enum PaperStartPosition: String, Codable, CaseIterable, Identifiable, Sen
     public var id: String { rawValue }
     public var label: String { rawValue.capitalized }
 
-    /// Unknown future positions keep the established top-starting layout.
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)
-        self = Self(rawValue: value) ?? .top
+        self = Self(rawValue: value) ?? WritingPreferences.defaults.paperStartPosition
     }
 }
 public enum CapsuleFinish: String, Codable, CaseIterable, Sendable {
@@ -181,15 +192,17 @@ public enum RibbonColor: String, Codable, CaseIterable, Sendable {
 
 /// Global preferences. Additive keys retain the existing v1 storage location.
 public struct WritingPreferences: Codable, Equatable, Sendable {
-    public var mechanismStyle: MechanismStyle = .classic
+    public static let defaults = WritingPreferences()
+
+    public var mechanismStyle: MechanismStyle = .walnut
     public var matchRailToStyle: Bool = true
     public var paper: PaperKind = .ivory
-    public var paperStartPosition: PaperStartPosition = .top
-    public var paperMotion: PaperMotion = .sheet
+    public var paperStartPosition: PaperStartPosition = .bottom
+    public var paperMotion: PaperMotion = .roll
     public var paperTexture: PaperTexture = .classic
-    public var textureStrength: Double = 0.55
-    public var paperEmbossing: PaperEmbossing = .none
-    public var embossingDepth: Double = 0.45
+    public var textureStrength: Double = 0.70
+    public var paperEmbossing: PaperEmbossing = .makerMark
+    public var embossingDepth: Double = 0.70
     public var capsule: CapsuleFinish = .porcelain
     public var rail: RailFinish = .steel
     public var ribbon: RibbonColor = .carbon
@@ -200,16 +213,24 @@ public struct WritingPreferences: Codable, Equatable, Sendable {
     public var inkBuildup: Double = 0.55
     public var wideMargins: Bool = true
     public var curvedPaper: Bool = true
-    public var garden: Bool = false
+    public var marginStyle: PaperMarginStyle = .none
+    /// Compatibility with the original Botanical margins toggle.
+    public var garden: Bool {
+        get { marginStyle == .botanical }
+        set {
+            if newValue { marginStyle = .botanical }
+            else if marginStyle == .botanical { marginStyle = .none }
+        }
+    }
     public var deskFinish: DeskFinish = .charcoal
     public var deskAccent: DeskAccent = .none
     public var widerFocusPaper: Bool = true
     public var soundEnabled: Bool = true
-    public var soundVolume: Double = 0.30
+    public var soundVolume: Double = 0.55
     public var typewriterSound: TypewriterSound = .classic
     public var nightMode: Bool = false
-    public var lampIntensity: Double = 0.82
-    public var lampWarmth: Double = 0.65
+    public var lampIntensity: Double = 0.85
+    public var lampWarmth: Double = 0.55
     public init() {}
 
     /// Paper motion changes drawing and feed timing, never the chosen
@@ -217,6 +238,9 @@ public struct WritingPreferences: Codable, Equatable, Sendable {
     public var effectivePaperStartPosition: PaperStartPosition {
         paperStartPosition
     }
+
+    /// Distance from the sheet edge to the writing area, in points.
+    public var writingMargin: Double { wideMargins ? 76 : 46 }
 
     private enum CodingKeys: String, CodingKey {
         case mechanismStyle
@@ -238,7 +262,7 @@ public struct WritingPreferences: Codable, Equatable, Sendable {
         case inkBuildup
         case wideMargins
         case curvedPaper
-        case garden
+        case marginStyle
         case deskFinish
         case deskAccent
         case widerFocusPaper
@@ -249,6 +273,8 @@ public struct WritingPreferences: Codable, Equatable, Sendable {
         case lampIntensity
         case lampWarmth
     }
+
+    private enum LegacyCodingKeys: String, CodingKey { case garden }
 
     /// Decode additive fields independently so new layout or style options never
     /// reset the user's existing paper, sound or lamp preferences.
@@ -274,7 +300,14 @@ public struct WritingPreferences: Codable, Equatable, Sendable {
         inkBuildup = try values.decodeIfPresent(Double.self, forKey: .inkBuildup) ?? inkBuildup
         wideMargins = try values.decodeIfPresent(Bool.self, forKey: .wideMargins) ?? wideMargins
         curvedPaper = try values.decodeIfPresent(Bool.self, forKey: .curvedPaper) ?? curvedPaper
-        garden = try values.decodeIfPresent(Bool.self, forKey: .garden) ?? garden
+        if let style = try values.decodeIfPresent(PaperMarginStyle.self, forKey: .marginStyle) {
+            marginStyle = style
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            if try legacy.decodeIfPresent(Bool.self, forKey: .garden) == true {
+                marginStyle = .botanical
+            }
+        }
         deskFinish = try values.decodeIfPresent(DeskFinish.self, forKey: .deskFinish) ?? deskFinish
         deskAccent = try values.decodeIfPresent(DeskAccent.self, forKey: .deskAccent) ?? deskAccent
         widerFocusPaper = try values.decodeIfPresent(Bool.self, forKey: .widerFocusPaper) ?? widerFocusPaper
@@ -288,13 +321,13 @@ public struct WritingPreferences: Codable, Equatable, Sendable {
     }
 
     public mutating func clamp() {
-        textureStrength = min(1, max(0, textureStrength.isFinite ? textureStrength : 0.55))
-        embossingDepth = min(1, max(0, embossingDepth.isFinite ? embossingDepth : 0.45))
-        fontSize = min(28, max(15, fontSize.isFinite ? fontSize : 20))
-        inkStrength = min(1, max(0.35, inkStrength.isFinite ? inkStrength : 0.88))
-        inkBuildup = min(1, max(0, inkBuildup.isFinite ? inkBuildup : 0.55))
-        soundVolume = min(1, max(0, soundVolume.isFinite ? soundVolume : 0.30))
-        lampIntensity = min(1, max(0.25, lampIntensity.isFinite ? lampIntensity : 0.82))
-        lampWarmth = min(1, max(0, lampWarmth.isFinite ? lampWarmth : 0.65))
+        textureStrength = min(1, max(0, textureStrength.isFinite ? textureStrength : Self.defaults.textureStrength))
+        embossingDepth = min(1, max(0, embossingDepth.isFinite ? embossingDepth : Self.defaults.embossingDepth))
+        fontSize = min(28, max(15, fontSize.isFinite ? fontSize : Self.defaults.fontSize))
+        inkStrength = min(1, max(0.35, inkStrength.isFinite ? inkStrength : Self.defaults.inkStrength))
+        inkBuildup = min(1, max(0, inkBuildup.isFinite ? inkBuildup : Self.defaults.inkBuildup))
+        soundVolume = min(1, max(0, soundVolume.isFinite ? soundVolume : Self.defaults.soundVolume))
+        lampIntensity = min(1, max(0.25, lampIntensity.isFinite ? lampIntensity : Self.defaults.lampIntensity))
+        lampWarmth = min(1, max(0, lampWarmth.isFinite ? lampWarmth : Self.defaults.lampWarmth))
     }
 }

@@ -20,8 +20,10 @@ extension Bundle {
 @MainActor final class AppModel: ObservableObject {
     @Published var preferences: WritingPreferences
     @Published var selectedPage: Page?
+    var paperSizeForExport: CGSize?
     @Published var showLibrary = false
     @Published var showStudio = false
+    @Published var sealEditorPage: Page?
     @Published var focusMode = false
     @Published var errorMessage: String?
     weak var editor: (any LetterEditor)?
@@ -39,7 +41,12 @@ extension Bundle {
     }
     func createPage() { selectedPage = Page() }
     func focusEditor() {}
-    func export() {}
+    func openSealEditor() { sealEditorPage = selectedPage }
+    func setSeal(_ seal: LetterSeal?, for id: UUID) {
+        if selectedPage?.id == id { selectedPage?.seal = seal }
+    }
+    func export(markdown: Bool = false) {}
+    func exportPDF() {}
 }
 struct LetterBox: View { var body: some View { EmptyView() } }
 struct StudioView: View { var body: some View { EmptyView() } }
@@ -337,6 +344,7 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
     }
 
     static func checkPairedLampColour() throws {
+        let defaults = WritingPreferences.defaults
         let size = CGSize(width: 1080, height: 820)
         let paperWidth = DeskLayout.paperWidth(windowWidth: size.width, focusMode: false, widerFocusPaper: true)
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
@@ -363,9 +371,9 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
                                     width: 56 * s, height: 70 * s))
                 ]
                 for night in [false, true] {
-                    for warmth in [0.0, 0.65, 1.0] {
+                    for warmth in [0.0, defaults.lampWarmth, 1.0] {
                         host.rootView = DeskBackdrop(finish: finish, accent: accent, paperWidth: paperWidth,
-                            focusMode: false, nightMode: night, lampWarmth: warmth, lampIntensity: 0.82)
+                            focusMode: false, nightMode: night, lampWarmth: warmth, lampIntensity: defaults.lampIntensity)
                         settle(host, duration: 0.04)
                         let image = try bitmap(host, size: size)
                         let name = "\(finish.rawValue)/\(accent.rawValue)/\(night ? "night" : "day")/\(warmth)"
@@ -662,7 +670,7 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
                         }
                         try require(difference(cool, warm, in: paper) < 0.003,
                                     "\(accent): lamp warmth affects the central day-mode writing field")
-                        model.preferences.lampWarmth = 0.65
+                        model.preferences.lampWarmth = preferences.lampWarmth
                         model.preferences.lampIntensity = 0.25
                         settle(host)
                         let dim = try bitmap(host, size: size)
@@ -678,7 +686,7 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
                         }
                         try require(difference(dim, bright, in: paper) < 0.003,
                                     "\(accent): lamp intensity affects the central day-mode writing field")
-                        model.preferences.lampIntensity = 0.82
+                        model.preferences.lampIntensity = preferences.lampIntensity
                         settle(host)
                     }
                     let name = "desk-lamps-\(Int(size.width))-\(accent.rawValue)-\(night ? "night" : "day")"
@@ -824,7 +832,7 @@ private struct CheckFailure: Error, CustomStringConvertible { let description: S
 
     static func renderEmbossingInvariant() throws {
         for motion in [PaperMotion.sheet, .roll] {
-            for mark in [PaperEmbossing.botanical, .monogram, .sunburst] {
+            for mark in PaperEmbossing.allCases where mark != .none {
                 var extents: [CGRect] = []
                 for width in [720.0, 960.0] {
                     var p = WritingPreferences()

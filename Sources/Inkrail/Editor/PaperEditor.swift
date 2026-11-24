@@ -3,25 +3,29 @@ import SwiftUI
 import InkrailCore
 
 struct CaretPosition: Equatable {
+    static let sealSize = CGSize(width: 120, height: 96)
+    static let sealSpacing: CGFloat = 16
     var x: CGFloat = 78
     var top: CGFloat = 68
     var bottom: CGFloat = 104
     var followingTextBottom: CGFloat?
+    var sealFrame: CGRect?
     var scrollOffset: CGFloat = 0
     var visible = true
     var startPosition: PaperStartPosition?
 
     func railCenterY(paperHeight: CGFloat, editorHeight: CGFloat, position: PaperStartPosition,
                      hasText: Bool) -> CGFloat {
+        let sealClearance = sealFrame.map { min($0.maxY, editorHeight) + 56 } ?? 0
         if position == .bottom {
-            return PaperFeedLayout.caretLimit(viewportHeight: editorHeight, position: .bottom) + 42
+            return max(sealClearance, PaperFeedLayout.caretLimit(viewportHeight: editorHeight, position: .bottom) + 42)
         }
         let writingY = min(paperHeight - 108, max(150, bottom + 42))
         // Until the first layout, a previously written page can fill the viewport.
         let textEdge = startPosition == .top ? followingTextBottom : (hasText ? editorHeight : nil)
-        guard let textEdge else { return writingY }
+        guard let textEdge else { return max(sealClearance, writingY) }
         // The hammer reaches 53 pt above the rail at the peak of a strike.
-        return max(writingY, min(textEdge, editorHeight) + 56)
+        return max(sealClearance, writingY, min(textEdge, editorHeight) + 56)
     }
 }
 
@@ -35,6 +39,32 @@ final class InkTextView: NSTextView {
     private(set) var performingNativeEdit = false
     private var readingPasteboard = false
     private var compositionBeganAtCaret = false
+
+    func applyWritingStyle(_ prefs: WritingPreferences, runs: [TextFormatRun], restoreTypingFromText: Bool) {
+        let font = prefs.writingFont.nsFont(size: prefs.fontSize)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = prefs.fontSize * 0.34
+        paragraph.paragraphSpacing = 0
+        paragraph.lineBreakMode = .byWordWrapping
+        let ink = prefs.ribbon.nsColor.withAlphaComponent(prefs.inkStrength)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: ink, .paragraphStyle: paragraph, .ligature: 0
+        ]
+        textColor = ink
+        insertionPointColor = ink.withAlphaComponent(0.48)
+        selectedTextAttributes = [
+            .backgroundColor: NSColor(calibratedRed: 0.55, green: 0.59, blue: 0.44, alpha: 0.28)
+        ]
+        defaultParagraphStyle = paragraph
+        applyLetterStyle(attributes, runs: runs, restoreTypingFromText: restoreTypingFromText)
+        refreshMarkdownBlocks()
+        if let manager = layoutManager as? InkLayoutManager {
+            manager.wornInk = prefs.wornInk
+            manager.inkBuildup = prefs.inkBuildup
+            manager.paperRollEnabled = prefs.paperMotion == .roll
+        }
+        needsDisplay = true
+    }
 
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
         [LetterSelection.pasteboardType] + super.writablePasteboardTypes
@@ -283,6 +313,7 @@ struct PaperEditor: NSViewRepresentable {
     var currentPage: (() -> Page?)? = nil
     var preferences: WritingPreferences
     var onChange: (UUID, String, [TextFormatRun]) -> Void
+    var onRestoreSeal: ((UUID, LetterSeal) -> Void)? = nil
     var onCaret: (CaretPosition) -> Void
     var onStroke: (StrokeKind) -> Void
     var onEmphasisChange: ((TextEmphasis) -> Void)? = nil
@@ -380,6 +411,11 @@ struct PaperEditor: NSViewRepresentable {
         weak var editor: InkTextView?
         weak var scroll: NSScrollView?
         private var loadedID: UUID?
+        private var displayedSeal: LetterSeal?
+        private var sealToRestore: LetterSeal?
+        private var sealDocumentFrame: CGRect?
+        private var needsSealLayout = false
+        private var pendingSealReveal = false
         private var appliedPreferences: WritingPreferences?
         private var knownFormatting: [TextFormatRun] = []
         private var restoreTypingFromText = true
@@ -414,6 +450,20 @@ struct PaperEditor: NSViewRepresentable {
         }
 
         func observe() {
+            // AppKit and the seal share the same undo group. Restore the seal
+            // once the native text action has finished repopulating the letter.
+            for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+                tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
+                    [weak self] notification in
+                    MainActor.assumeIsolated {
+                        guard let self, let manager = notification.object as? UndoManager,
+                              manager === self.editor?.undoManager, let seal = self.sealToRestore,
+                              let id = self.loadedID else { return }
+                        self.sealToRestore = nil
+                        self.parent.onRestoreSeal?(id, seal)
+                    }
+                })
+            }
             tokens.append(NotificationCenter.default.addObserver(
                 forName: .inkrailToggleEmphasis, object: nil, queue: .main
             ) { [weak self] notification in
@@ -477,6 +527,13 @@ struct PaperEditor: NSViewRepresentable {
             if switched {
                 commitComposition()
                 interruptPaperFeed()
+                sealToRestore = nil
+            }
+            if displayedSeal != page.seal || switched {
+                needsSealLayout = displayedSeal != nil || page.seal != nil
+                pendingSealReveal = page.seal != nil
+                displayedSeal = page.seal
+                if needsSealLayout { interruptPaperFeed(cancelFollow: true) }
             }
             updating = true
             var textReplaced = false
@@ -506,44 +563,48 @@ struct PaperEditor: NSViewRepresentable {
             updating = false
             if switched {
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, let editor = self.editor else { return }
+                    guard let self, self.loadedID == page.id, let editor = self.editor else { return }
                     editor.window?.makeFirstResponder(editor)
-                    self.scheduleCaretUpdate(followCaret: true)
+                    self.scheduleCaretUpdate(followCaret: self.displayedSeal == nil)
                 }
             }
             scheduleCaretUpdate(followCaret: switched || textReplaced)
         }
 
         private func applyStyle(to editor: InkTextView) {
-            let prefs = parent.preferences
-            let font = prefs.writingFont.nsFont(size: prefs.fontSize)
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.lineSpacing = prefs.fontSize * 0.34
-            paragraph.paragraphSpacing = 0
-            paragraph.lineBreakMode = .byWordWrapping
-            let ink = prefs.ribbon.nsColor.withAlphaComponent(prefs.inkStrength)
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font, .foregroundColor: ink, .paragraphStyle: paragraph, .ligature: 0
-            ]
-            editor.textColor = ink
-            editor.insertionPointColor = ink.withAlphaComponent(0.48)
-            editor.selectedTextAttributes = [
-                .backgroundColor: NSColor(calibratedRed: 0.55, green: 0.59, blue: 0.44, alpha: 0.28)
-            ]
-            editor.defaultParagraphStyle = paragraph
-            editor.applyLetterStyle(attributes, runs: knownFormatting, restoreTypingFromText: restoreTypingFromText)
-            editor.refreshMarkdownBlocks()
+            editor.applyWritingStyle(parent.preferences, runs: knownFormatting, restoreTypingFromText: restoreTypingFromText)
             pendingBlockRange = nil
             restoreTypingFromText = false
-            (editor.layoutManager as? InkLayoutManager)?.wornInk = prefs.wornInk
-            (editor.layoutManager as? InkLayoutManager)?.inkBuildup = prefs.inkBuildup
-            (editor.layoutManager as? InkLayoutManager)?.paperRollEnabled = prefs.paperMotion == .roll
-            editor.needsDisplay = true
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedRange: NSRange,
+                      replacementString: String?) -> Bool {
+            guard affectedRange.length > 0, let replacementString,
+                  (parent.currentPage?() ?? parent.page).seal != nil,
+                  replacementString.allSatisfy(\.isWhitespace) else { return true }
+            let text = textView.string
+            if let range = Range(affectedRange, in: text),
+               text[..<range.lowerBound].allSatisfy(\.isWhitespace),
+               text[range.upperBound...].allSatisfy(\.isWhitespace) {
+                // Make this last deletion and its seal one undo step, even
+                // when preceding Backspaces were coalesced in an earlier event.
+                textView.breakUndoCoalescing()
+            }
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
             guard !updating, let editor, let loadedID else { return }
             knownFormatting = editor.formattingRuns
+            if displayedSeal != nil { needsSealLayout = true }
+            let page = parent.currentPage?() ?? parent.page
+            if parent.onRestoreSeal != nil, page.id == loadedID, let seal = page.seal,
+               editor.string.allSatisfy(\.isWhitespace) {
+                guard !editor.hasMarkedText() else { return }
+                editor.undoManager?.registerUndo(withTarget: self) { coordinator in
+                    MainActor.assumeIsolated { coordinator.sealToRestore = seal }
+                }
+            }
             parent.onChange(loadedID, editor.string, knownFormatting)
             if editor.undoManager?.isUndoing == true || editor.undoManager?.isRedoing == true {
                 // Native undo can restore attributes captured with an earlier desk font.
@@ -607,7 +668,17 @@ struct PaperEditor: NSViewRepresentable {
                     let origin = self.pendingFeedOrigin
                     self.animateNextFeed = false
                     self.pendingFeedOrigin = nil
-                    if follow || layoutChanged { self.followInsertionPoint(animate: animate, from: origin) }
+                    if self.pendingSealReveal, let clip = self.scroll?.contentView, clip.bounds.height > 0 {
+                        self.fitDocumentToWritingBand()
+                        if let frame = self.sealDocumentFrame {
+                            self.pendingSealReveal = false
+                            self.setScrollOrigin(NSPoint(x: 0, y: max(0, frame.maxY + CaretPosition.sealSpacing - clip.bounds.height)))
+                        }
+                    } else if follow || layoutChanged {
+                        self.followInsertionPoint(animate: animate, from: origin)
+                    } else if self.needsSealLayout {
+                        self.fitDocumentToWritingBand()
+                    }
                 }
                 // While composing, leave the container and scrolling to AppKit.
                 // The pending follow is consumed after commit/unmark.
@@ -650,7 +721,7 @@ struct PaperEditor: NSViewRepresentable {
             let font = editor.font ?? prefs.writingFont.nsFont(size: prefs.fontSize)
             let lineHeight = editor.layoutManager?.defaultLineHeight(for: font) ?? prefs.fontSize * 1.2
             let inset = NSSize(
-                width: prefs.wideMargins ? 76 : 46,
+                width: prefs.writingMargin,
                 height: PaperFeedLayout.topInset(viewportHeight: clip.bounds.height,
                                                lineHeight: lineHeight, position: prefs.effectivePaperStartPosition)
             )
@@ -678,17 +749,29 @@ struct PaperEditor: NSViewRepresentable {
                   let container = editor.textContainer, let layout = editor.layoutManager else { return }
             layout.ensureLayout(for: container)
             var minimumHeight = clip.bounds.height
-            if parent.preferences.effectivePaperStartPosition == .top {
+            if parent.preferences.effectivePaperStartPosition == .top || displayedSeal != nil {
                 // Include an empty last line and enough trailing space to feed
                 // it to the writing line. Recompute after deletion as well.
                 var contentBottom = layout.usedRect(for: container).maxY
                 if layout.extraLineFragmentTextContainer === container {
                     contentBottom = max(contentBottom, layout.extraLineFragmentRect.maxY)
                 }
-                let trailingSpace = clip.bounds.height - PaperFeedLayout.caretLimit(
-                    viewportHeight: clip.bounds.height, position: .top)
-                minimumHeight = max(minimumHeight, editor.textContainerOrigin.y + contentBottom + max(0, trailingSpace))
+                contentBottom += editor.textContainerOrigin.y
+                if parent.preferences.effectivePaperStartPosition == .top {
+                    let trailingSpace = clip.bounds.height - PaperFeedLayout.caretLimit(
+                        viewportHeight: clip.bounds.height, position: .top)
+                    minimumHeight = max(minimumHeight, contentBottom + max(0, trailingSpace))
+                }
+                if displayedSeal != nil {
+                    let size = CaretPosition.sealSize
+                    let frame = CGRect(origin: CGPoint(x: (clip.bounds.width - size.width) / 2,
+                                                       y: contentBottom + CaretPosition.sealSpacing), size: size)
+                    sealDocumentFrame = frame
+                    minimumHeight = max(minimumHeight, frame.maxY + CaretPosition.sealSpacing)
+                }
             }
+            if displayedSeal == nil { sealDocumentFrame = nil }
+            needsSealLayout = false
             let minimum = NSSize(width: 0, height: minimumHeight)
             if editor.minSize != minimum { editor.minSize = minimum }
             editor.sizeToFit()
@@ -705,8 +788,10 @@ struct PaperEditor: NSViewRepresentable {
             let rect = layout.boundingRect(forGlyphRange: NSRange(location: layout.numberOfGlyphs, length: 0),
                                            in: container)
             guard rect.maxY.isFinite else { return }
-            clip.maximumWritingOffset = max(0, editor.textContainerOrigin.y + rect.maxY - PaperFeedLayout.caretLimit(
-                viewportHeight: clip.bounds.height, position: parent.preferences.effectivePaperStartPosition))
+            let textOffset = editor.textContainerOrigin.y + rect.maxY - PaperFeedLayout.caretLimit(
+                viewportHeight: clip.bounds.height, position: parent.preferences.effectivePaperStartPosition)
+            let sealOffset = sealDocumentFrame.map { $0.maxY + CaretPosition.sealSpacing - clip.bounds.height } ?? 0
+            clip.maximumWritingOffset = max(0, textOffset, sealOffset)
             let bounded = clip.constrainBoundsRect(clip.bounds)
             if bounded.minX != clip.bounds.minX || abs(bounded.minY - clip.bounds.minY) > 0.5 {
                 clip.scroll(to: bounded.origin)
@@ -832,6 +917,7 @@ struct PaperEditor: NSViewRepresentable {
                 top: clip.isFlipped ? rect.minY - clip.bounds.minY : clip.bounds.maxY - rect.maxY,
                 bottom: bottom,
                 followingTextBottom: followingTextBottom(in: clip, caretBottom: bottom),
+                sealFrame: visibleSealFrame(in: clip),
                 scrollOffset: max(0, clip.bounds.minY),
                 visible: bottom >= 0 && bottom <= clip.bounds.height + 4,
                 startPosition: parent.preferences.effectivePaperStartPosition
@@ -839,6 +925,19 @@ struct PaperEditor: NSViewRepresentable {
             guard position != lastCaret else { return }
             lastCaret = position
             parent.onCaret(position)
+        }
+
+        private func visibleSealFrame(in clip: NSClipView) -> CGRect? {
+            guard var frame = sealDocumentFrame else { return nil }
+            frame.origin.y -= clip.bounds.minY
+            if parent.preferences.paperMotion == .roll {
+                let roll = PaperRollProjection(width: clip.bounds.width, viewportHeight: clip.bounds.height)
+                let width = frame.width * roll.horizontalScale(at: frame.midY)
+                let top = roll.projectY(frame.minY)
+                frame = CGRect(x: (clip.bounds.width - width) / 2, y: top, width: width,
+                               height: roll.projectY(frame.maxY) - top)
+            }
+            return frame.minY < clip.bounds.height && frame.maxY > 0 ? frame : nil
         }
     }
 }

@@ -11,7 +11,7 @@ INKRAIL_CHECK_DIR="$INKRAIL_ROOT/.build/paper-roll-renders"
 INKRAIL_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 INKRAIL_TARGET="$(uname -m)-apple-macos13.0"
 mkdir -p "$INKRAIL_CHECK_DIR/ModuleCache" "$INKRAIL_CHECK_DIR/FixtureResources.bundle"
-cp "$INKRAIL_ROOT/Sources/Inkrail/Resources/paper-grain.png" "$INKRAIL_CHECK_DIR/FixtureResources.bundle/"
+cp "$INKRAIL_ROOT"/Sources/Inkrail/Resources/{paper-grain,maker-mark}.png "$INKRAIL_CHECK_DIR/FixtureResources.bundle/"
 bash "$INKRAIL_ROOT/scripts/check-swiftui.sh"
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
     -sdk "$INKRAIL_SDK" -target "$INKRAIL_TARGET" \

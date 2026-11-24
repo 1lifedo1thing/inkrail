@@ -19,8 +19,11 @@ final class MemoryDefaults: UserDefaults {
     func stopAll() {}
 }
 
-@MainActor enum TextExport {
-    static func save(_ page: Page, markdown: Bool) throws {
+@MainActor enum LetterExport {
+    static func saveText(_ page: Page, markdown: Bool) throws {
+        fatalError("The storage fixture must not open an export panel")
+    }
+    static func savePDF(_ page: Page, preferences: WritingPreferences, paperSize: CGSize) throws {
         fatalError("The storage fixture must not open an export panel")
     }
 }

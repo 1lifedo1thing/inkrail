@@ -13,10 +13,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var pages: [Page] = []
     @Published private(set) var selectedID: UUID? {
         didSet {
-            if selectedID != oldValue, let selectedPage { editor?.display(selectedPage) }
+            if selectedID != oldValue {
+                sealEditorPage = nil
+                if let selectedPage { editor?.display(selectedPage) }
+            }
         }
     }
     weak var editor: (any LetterEditor)?
+    @Published var paperSizeForExport: CGSize?
     @Published var preferences: WritingPreferences {
         didSet {
             if (oldValue.soundEnabled && !preferences.soundEnabled)
@@ -31,6 +35,7 @@ final class AppModel: ObservableObject {
     }
     @Published var showLibrary = false
     @Published var showStudio = false
+    @Published var sealEditorPage: Page?
     @Published var focusMode = false
     @Published var errorMessage: String?
     @Published private(set) var saveState = "Saved on this Mac"
@@ -128,6 +133,21 @@ final class AppModel: ObservableObject {
         var page = pages[index]
         page.setPrivateTitle(title)
         guard page.privateTitle != pages[index].privateTitle else { return }
+        autosave(page, at: index)
+    }
+
+    func openSealEditor() {
+        editor?.commitComposition()
+        guard let page = selectedPage, page.canApplySeal else { return }
+        sealEditorPage = page
+    }
+
+    func setSeal(_ seal: LetterSeal?, for id: UUID) {
+        guard selectedID == id, let index = pages.firstIndex(where: { $0.id == id }) else { return }
+        var page = pages[index]
+        guard page.canApplySeal, page.seal != seal else { return }
+        page.seal = seal
+        page.modifiedAt = nowProvider()
         autosave(page, at: index)
     }
 
@@ -306,9 +326,18 @@ final class AppModel: ObservableObject {
     }
 
     func export(markdown: Bool = false) {
+        exportPage { try LetterExport.saveText($0, markdown: markdown) }
+    }
+
+    func exportPDF() {
+        guard let paperSizeForExport else { return }
+        exportPage { try LetterExport.savePDF($0, preferences: preferences, paperSize: paperSizeForExport) }
+    }
+
+    private func exportPage(_ save: (Page) throws -> Void) {
         editor?.commitComposition()
         guard let page = selectedPage else { return }
-        do { try TextExport.save(page, markdown: markdown) }
+        do { try save(page) }
         catch { errorMessage = error.localizedDescription }
         focusEditor()
     }

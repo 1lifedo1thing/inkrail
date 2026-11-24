@@ -1,3 +1,4 @@
+using Microsoft.Web.WebView2.Core;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -52,22 +53,50 @@ internal static class FileDialogs
         return safe;
     }
 
-    internal static bool Export(IWin32Window owner, JsonElement args)
+    private static string? ChooseExportPath(IWin32Window owner, JsonElement args, string extension, string filter)
     {
-        bool markdown = args.GetProperty("markdown").GetBoolean();
-        string extension = markdown ? "md" : "txt";
         using var dialog = new SaveFileDialog {
             Title = "Keep a copy of your letter", DefaultExt = extension,
             FileName = ExportName(args.GetProperty("body").GetString() ?? "") + "." + extension,
-            Filter = markdown ? "Markdown file|*.md" : "Text file|*.txt",
-            OverwritePrompt = true, RestoreDirectory = true
+            Filter = filter, OverwritePrompt = true, RestoreDirectory = true
         };
-        if (dialog.ShowDialog(owner) != DialogResult.OK) return false;
-        string path = Path.GetFullPath(dialog.FileName);
-        string temporary = Path.Combine(Path.GetDirectoryName(path)!, ".inkrail-export-" + Guid.NewGuid().ToString("N"));
+        return dialog.ShowDialog(owner) == DialogResult.OK ? Path.GetFullPath(dialog.FileName) : null;
+    }
+
+    private static string TemporaryExport(string path) => Path.Combine(Path.GetDirectoryName(path)!,
+        ".inkrail-export-" + Guid.NewGuid().ToString("N") + Path.GetExtension(path));
+
+    internal static bool Export(IWin32Window owner, JsonElement args)
+    {
+        bool markdown = args.GetProperty("markdown").GetBoolean();
+        string? path = ChooseExportPath(owner, args, markdown ? "md" : "txt",
+            markdown ? "Markdown file|*.md" : "Text file|*.txt");
+        if (path is null) return false;
+        string temporary = TemporaryExport(path);
         try
         {
             File.WriteAllText(temporary, args.GetProperty("text").GetString() ?? "", Utf8);
+            File.Move(temporary, path, true);
+            return true;
+        }
+        finally { File.Delete(temporary); }
+    }
+
+    internal static async Task<bool> ExportPdf(IWin32Window owner, CoreWebView2 webView, JsonElement args)
+    {
+        string? path = ChooseExportPath(owner, args, "pdf", "PDF document|*.pdf");
+        if (path is null) return false;
+        var settings = webView.Environment.CreatePrintSettings();
+        settings.PageWidth = args.GetProperty("width").GetDouble() / 96;
+        settings.PageHeight = args.GetProperty("height").GetDouble() / 96;
+        settings.MarginLeft = settings.MarginRight = settings.MarginTop = settings.MarginBottom = 0;
+        settings.ShouldPrintBackgrounds = true;
+        settings.ShouldPrintHeaderAndFooter = false;
+        string temporary = TemporaryExport(path);
+        try
+        {
+            if (!await webView.PrintToPdfAsync(temporary, settings))
+                throw new IOException("The letter could not be exported as a PDF.");
             File.Move(temporary, path, true);
             return true;
         }

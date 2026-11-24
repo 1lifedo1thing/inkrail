@@ -25,10 +25,11 @@ jobs:
         run: |
           bash scripts/check-customization.sh
           bash scripts/check-ink-rendering.sh
+          bash scripts/check-letter-pdf.sh
           bash scripts/check-machine-styles.sh
           bash scripts/check-desk-preferences.sh
           bash scripts/check-night-lamp.sh
-      - name: Build native app
+      - name: Build universal app for Intel and Apple silicon
         run: bash scripts/build-app.sh
       - name: Check typewriter samples in the app bundle
         run: |
@@ -43,6 +44,16 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           overwrite: true
+
+  macos-intel:
+    name: Test on an Intel Mac
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test storage and models on Intel
+        run: |
+          swift test
+          bash scripts/check-storage-model.sh
 
   windows:
     name: Windows ${{ matrix.arch }}
@@ -102,7 +113,7 @@ jobs:
 
   verify:
     name: Verify all three ZIPs
-    needs: [macos, windows]
+    needs: [macos, macos-intel, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

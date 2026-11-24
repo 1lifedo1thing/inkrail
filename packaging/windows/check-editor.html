@@ -1,15 +1,18 @@
 <!doctype html>
 <meta charset="utf-8">
 <link rel="stylesheet" href="./ui/shell.css">
+<link rel="stylesheet" href="./ui/desk.css">
 <link rel="stylesheet" href="./ui/editor.css">
 <div id="surface" style="position:relative;width:700px;height:500px"></div>
 <pre id="result">Pending</pre>
 <script type="module">
 import { mountEditor } from "./ui/editor.js";
-import { exportMarkdown, importMarkdown } from "./ui/markdown.js";
+import { mountDesk } from "./ui/desk.js";
+import * as markdown from "./ui/markdown.js";
 import { Keys, sampleURL } from "./ui/audio.js";
-import { choices, normalizeSettings } from "./ui/panels.js";
+import { choices, mountPanels, normalizeSettings } from "./ui/panels.js";
 
+const { exportMarkdown, exportPlainText, importMarkdown } = markdown;
 const result = document.querySelector("#result");
 function expect(condition, message) {
     if (!condition) throw new Error(message);
@@ -20,6 +23,54 @@ try {
     const surface = document.querySelector("#surface");
     const strokes = [];
     const editor = mountEditor(surface, {onChange: page => edits.push(page), onSound: kind => strokes.push(kind)});
+    // The MSIX workflow also checks older release archives with this fixture.
+    const supportsSeals = typeof editor.setSeal === "function" || typeof exportPlainText === "function";
+    if (supportsSeals) {
+        const panelRoot = document.createElement('div');
+        document.body.append(panelRoot);
+        const panels = mountPanels(panelRoot, {onAction(action, id, value) {
+            expect(action === 'setSeal' && id === initial.id, 'Seal targeted the wrong letter.');
+            editor.setSeal(value, true);
+            return true;
+        }});
+        editor.load(initial);
+        for (const cancel of [true, false]) {
+            panels.showSeal(editor.snapshot());
+            const dialog = panelRoot.querySelector('dialog[open]');
+            const input = dialog.querySelector('input'), [shape, color] = dialog.querySelectorAll('select');
+            input.value = '  ';
+            input.dispatchEvent(new Event('input'));
+            expect(dialog.querySelector('[type=submit]').disabled, 'Blank seal inscription was accepted.');
+            input.value = '✍️'.repeat(25);
+            input.dispatchEvent(new Event('input'));
+            expect(input.value === '✍️'.repeat(24), 'Seal limit split composed characters.');
+            input.value = '  A & <B>  ';
+            input.dispatchEvent(new Event('input'));
+            shape.value = 'scalloped'; color.value = 'plum';
+            for (const control of [shape, color]) control.dispatchEvent(new Event('change'));
+            expect(dialog.querySelector('.ink-seal').dataset.color === 'plum', 'Seal preview did not change color.');
+            if (cancel) {
+                panels.close();
+                expect(!editor.snapshot().seal, 'Cancel applied a seal.');
+            } else {
+                dialog.querySelector('[type=submit]').click();
+                await Promise.resolve(); await Promise.resolve();
+                const sealed = editor.snapshot(), footer = surface.querySelector('.ink-seal-footer');
+                expect(sealed.seal.text === 'A & <B>' && sealed.seal.color === 'plum' && sealed.seal.shape === 'scalloped', 'Lost seal customization.');
+                expect(sealed.text === initial.text && !editor.element.contains(footer), 'Seal leaked into editable text.');
+                expect(footer.getBoundingClientRect().top >= editor.element.lastElementChild.getBoundingClientRect().bottom - 1, 'Seal overlaps final line.');
+                editor.load({text:'Another letter'});
+                expect(footer.hidden, 'Seal followed the writer onto another letter.');
+                editor.load(sealed);
+                expect(!footer.hidden && footer.textContent === 'A & <B>', 'Saved seal did not reopen.');
+                panels.showSeal(sealed);
+                panelRoot.querySelector('.ip-remove-seal').click();
+                await Promise.resolve(); await Promise.resolve();
+                expect(footer.hidden && !editor.snapshot().seal, 'Remove did not clear the saved seal.');
+            }
+        }
+        panels.destroy(); panelRoot.remove();
+    }
     function paste(type, data) {
         editor.load(initial);
         editor.focus();
@@ -47,6 +98,113 @@ try {
     expect(own.text === initial.text && own.formatting[0].emphasis === 2, "Lost Inkrail clipboard formatting.");
     const bold = {text: "Mum types 4*", formatting: [{location: 0, length: 12, emphasis: 1}]};
     expect(JSON.stringify(importMarkdown(exportMarkdown(bold))) === JSON.stringify(bold), "Markdown round trip changed literal asterisk.");
+    if (supportsSeals) {
+        const sealed = {text: "Love,\r\n", formatting: [{location: 0, length: 4, emphasis: 2}],
+            seal: {text: "A < B & 👩🏽‍🎨 **", shape: "scalloped", color: "plum"}};
+        const footer = '<p data-inkrail-seal="scalloped plum">✦ A &lt; B &amp; 👩🏽‍🎨 ** ✦</p>';
+        expect(exportPlainText(sealed) === "Love,\r\n\n\n✦ A < B & 👩🏽‍🎨 ** ✦", "Lost literal seal text in text export.");
+        expect(exportMarkdown(sealed) === "*Love*,\r\n\n\n" + footer, "Invalid seal markup in Markdown export.");
+        const imported = importMarkdown(exportMarkdown(sealed));
+        expect(imported.seal?.text === sealed.seal.text && imported.seal.shape === "scalloped" && imported.seal.color === "plum" &&
+            imported.text === sealed.text && JSON.stringify(imported.formatting) === JSON.stringify(sealed.formatting), "Sealed letter round trip failed.");
+        const invalid = "Dear reader,\n\n" + footer.replace("scalloped", "unknown").replace("👩🏽‍🎨 **", "**reader**");
+        expect(!importMarkdown(invalid).seal && importMarkdown(invalid).text === invalid, "Unknown seal markup was removed.");
+        const example = "~~~~html\nA literal seal footer\n\n" + footer;
+        expect(!importMarkdown(example).seal && importMarkdown(example).text === example, "Code example was mistaken for a seal.");
+        const sealedExample = {text: example, seal: {...sealed.seal, text: "&lt; © &amp;"}};
+        const importedExample = importMarkdown(exportMarkdown(sealedExample));
+        expect(importedExample.text === example && importedExample.seal?.text === "&lt; © &amp;", "Lost literal fence or entities.");
+
+        const mark = surface.querySelector(".ink-seal-footer");
+        if (typeof editor.printContent === "function") {
+            const deskRoot = document.createElement("div");
+            const printRoot = document.createElement("div");
+            printRoot.id = "letter-print";
+            document.body.append(deskRoot, printRoot);
+            const desk = mountDesk(deskRoot, {width: 700, height: 550});
+            try {
+                for (const paperMotion of ["sheet", "roll"]) {
+                    desk.update(normalizeSettings({curvedPaper: true, paperMotion, paperTexture: "laid", garden: true, paperEmbossing: "makerMark"}));
+                    const {substrate, ornaments} = await desk.printPaper();
+                    printRoot.replaceChildren(substrate, ornaments);
+                    expect(getComputedStyle(deskRoot.querySelector(".ink-desk__substrate")).clipPath !== "none",
+                        "The writing desk lost its curved paper.");
+                    const grain = substrate.querySelector(".ink-desk__grain");
+                    expect(grain && [substrate, grain, ornaments].every(layer => getComputedStyle(layer).clipPath === "none") &&
+                        !substrate.querySelector(".ink-desk__curl, .ink-desk__lip"), "The PDF inherited the desk's curved edges.");
+                    expect(ornaments.querySelector(".ink-desk__margin-art, .ink-desk__garden") && ornaments.querySelector(".ink-desk__emboss"),
+                        "Flattening the printed paper removed its decoration.");
+                }
+                if (choices.marginStyle) {
+                    expect(normalizeSettings({garden: true}).marginStyle === "botanical" &&
+                        normalizeSettings({garden: false}).marginStyle === "none" &&
+                        normalizeSettings({marginStyle: "none", garden: true}).marginStyle === "none" &&
+                        normalizeSettings({marginStyle: "unknown"}).marginStyle === "none", "Margin preference migration failed.");
+                    const liveMotifs = new Set(), printMotifs = new Set();
+                    for (const style of ["botanical", "ledger", "artDeco", "celestial", "none"]) {
+                        desk.update(normalizeSettings({marginStyle: style, garden: true, paperTexture: "smooth"}));
+                        const live = deskRoot.querySelector(".ink-desk__margin-art");
+                        const {ornaments} = await desk.printPaper();
+                        const printed = ornaments.querySelector(".ink-desk__margin-art");
+                        if (style === "none") {
+                            expect(!live.childElementCount && !printed, "Turning the margin off left an ornament.");
+                        } else {
+                            expect(live.childElementCount && printed?.childElementCount, "Missing " + style + " margin.");
+                            liveMotifs.add(live.innerHTML);
+                            printMotifs.add(printed.innerHTML);
+                        }
+                    }
+                    expect(liveMotifs.size === 4 && printMotifs.size === 4, "Changing margin style reused the previous artwork.");
+                }
+            } finally {
+                desk.destroy(); deskRoot.remove(); printRoot.remove();
+            }
+            const rows = Array.from({length: 60}, (_, i) => "Entry " + (i + 1));
+            editor.load({...sealed, text: ["# Journal", ...rows].join("\n"),
+                formatting: [{location: 10, length: 5, emphasis: 2}]});
+            const copy = editor.printContent();
+            expect(copy.querySelector(".ink-block-heading")?.textContent === "Journal", "The PDF lost its rendered heading.");
+            expect([...copy.querySelectorAll(".ink-line")].map(line => line.textContent).join("\n") === ["Journal", ...rows].join("\n"),
+                "The printed letter omitted or reordered writing outside the viewport.");
+            const wax = copy.querySelector(".ink-seal");
+            expect(copy.querySelector(".ink-italic") && wax?.textContent === sealed.seal.text &&
+                wax.dataset.color === sealed.seal.color && wax.dataset.shape === sealed.seal.shape,
+                "The printed letter lost its styling or custom seal.");
+        }
+        const spaces = "\t\u0085\u00a0";
+        const legacy = {...sealed, text:spaces, formatting:[]};
+        editor.load(legacy);
+        expect(mark.hidden && !editor.snapshot().seal, "Reopened a seal on a blank legacy letter.");
+        expect(exportPlainText(legacy) === spaces && exportMarkdown(legacy) === spaces &&
+            !importMarkdown(footer).seal, "Export or import retained a seal without a letter.");
+
+        editor.load(sealed);
+        editor.focus();
+        getSelection().selectAllChildren(editor.element);
+        input("insertReplacementText", "A revised closing.");
+        expect(edits.at(-1).seal?.text === sealed.seal.text && !mark.hidden, "Replacing the writing removed its seal.");
+        getSelection().selectAllChildren(editor.element);
+        input("deleteContentBackward");
+        expect(mark.hidden && !edits.at(-1).seal && edits.at(-1).text === "", "Clearing the writing kept a displayed or saved seal.");
+        editor.command("undo");
+        expect(!mark.hidden && edits.at(-1).seal?.text === sealed.seal.text && edits.at(-1).text === "A revised closing.",
+            "Undo did not restore the closing and seal together.");
+        editor.command("redo");
+        expect(mark.hidden && !edits.at(-1).seal, "Redo left a seal over the empty page.");
+        editor.command("undo");
+        editor.setSeal({...sealed.seal, text:"New stamp"});
+        editor.command("undo");
+        expect(edits.at(-1).seal?.text === "New stamp", "Undoing a separate text edit reverted the chosen seal.");
+        getSelection().selectAllChildren(editor.element);
+        editor.element.dispatchEvent(new CompositionEvent("compositionstart"));
+        editor.element.dispatchEvent(new CompositionEvent("compositionend", {data:""}));
+        expect(!mark.hidden && editor.snapshot().seal?.text === "New stamp", "Canceling composition removed the seal.");
+        getSelection().selectAllChildren(editor.element);
+        editor.element.dispatchEvent(new CompositionEvent("compositionstart"));
+        editor.element.dispatchEvent(new CompositionEvent("compositionend", {data:spaces}));
+        expect(mark.hidden && !edits.at(-1).seal && /^\p{White_Space}+$/u.test(edits.at(-1).text),
+            "Committing a whitespace-only replacement retained the seal.");
+    }
 
     function input(inputType, data) {
         editor.element.dispatchEvent(new InputEvent("beforeinput", {inputType, data, bubbles: true, cancelable: true}));

@@ -4,14 +4,18 @@
 
   const MEDIA = 'https://raw.githubusercontent.com/Aaryanverma/inkrail/main/screenshots/';
   const images = {
-    day: { file: 'inkrail-light-mode.png', alt: 'Inkrail with light textured paper, a small typewriter carriage, and a botanical desk accent', heroCaption: 'A page that feels like yours.', galleryCaption: 'A fresh page, full of possibility.' },
-    night: { file: 'inkrail-night-mode.png', alt: 'Inkrail in night writing mode, with softly illuminated dark paper', heroCaption: 'A gentler way to write after dark.', galleryCaption: 'A gentler way to write after dark.' },
-    lamp: { file: 'inkrail-night-lamp.png', alt: 'Inkrail at night, with two bronze desk lamps casting warm light beside the writing page', heroCaption: 'For the ideas that arrive after sunset.', galleryCaption: 'Lamps on. World off.' },
-    focus: { file: 'inkrail-focus-mode.png', alt: 'Inkrail Focus Mode, with a wider plain writing page and no desk decorations', heroCaption: 'Nothing between you and the words.', galleryCaption: 'Just a blank page and a thought.' },
-    desk: { file: 'inkrail-desk-customization.png', alt: 'Inkrail Make it yours settings, showing desk finishes, paired lamps, and live preview', galleryCaption: 'Your own little corner of the world.' },
-    machine: { file: 'inkrail-machine-customization.png', alt: 'Inkrail machine customization settings showing twelve typewriter carriage styles', galleryCaption: 'Twelve small machines, each with its own character.' },
-    makersMark: { file: 'inkrail-makers-mark.png', alt: 'The IR maker’s mark pressed into a sheet beside the typewriter carriage', galleryCaption: 'The carriage initials pressed into the paper.' },
-    embossings: { file: 'inkrail-paper-embossings.png', alt: 'Botanical, Monogram, Sunburst, and Maker’s mark impressions shown in daylight and night writing', galleryCaption: 'Four paper embossings in day and night light.' }
+    day: { file: 'inkrail-light-mode.png', alt: 'A welcome note on ivory paper with an embossed IR mark and a walnut typewriter carriage', heroCaption: 'A page that feels like yours.', galleryCaption: 'A welcome note on ivory paper.' },
+    night: { file: 'inkrail-night-mode.png', alt: 'Warm light falls across the welcome note and carriage on a dark sheet', heroCaption: 'A gentler way to write after dark.', galleryCaption: 'Warm light follows the writing line.' },
+    focus: { file: 'inkrail-focus-mode.png', alt: 'A wide ivory sheet in Focus Mode with a welcome note above the carriage', heroCaption: 'Nothing between you and the words.', galleryCaption: 'More room for the writing line.' },
+    embossings: { file: 'inkrail-paper-embossings.png', alt: 'Botanical, Monogram, Sunburst, and Maker’s mark impressions compared on light and dark paper at 45% relief', galleryCaption: 'Four embossings in day and night light.' },
+    margins: { file: 'inkrail-paper-margins.png', alt: 'Leafy vines and purple flowers border the sides of a welcome note', galleryCaption: 'A floral border along the margins.' },
+    machine: { file: 'inkrail-machine-customizations.png', alt: 'Twelve typewriter carriages in the Machine tab, with Walnut selected', galleryCaption: 'Walnut is one of twelve carriage styles.' },
+    desk: { file: 'inkrail-desk-customizations.png', alt: 'The Desk tab previews paired bronze lamps on a walnut desk beside the sheet', galleryCaption: 'A walnut writing desk with paired bronze lamps.' },
+    sound: { file: 'inkrail-sound-customizations.png', alt: 'The Sound tab shows six typewriter sound profiles, a volume slider, and a preview button', galleryCaption: 'Choose a typewriter sound and preview its volume.' },
+    light: { file: 'inkrail-light-customizations.png', alt: 'The Light tab shows a night writing preview above the lamp intensity and warmth sliders', galleryCaption: 'Adjust the intensity and warmth of the lamp.' },
+    storage: { file: 'inkrail-storage-options.png', alt: 'The Storage tab shows the letters folder with Change Location and Show in Finder controls', galleryCaption: 'Choose where the letter library lives.' },
+    seal: { file: 'inkrail-seal-options.png', alt: 'The Seal letter dialog previews an AV wax seal alongside inscription, shape, and color controls', galleryCaption: 'Choose the inscription, shape, and wax color.' },
+    letter: { file: 'inkrail-letter-with-seal-preview.png', alt: 'A finished letter ends with a red AV wax seal beneath the signature', galleryCaption: 'A wax seal beneath the last line.' }
   };
 
   const heroImage = document.getElementById('hero-image');
@@ -22,7 +26,7 @@
   const galleryCaption = document.getElementById('gallery-caption');
   const galleryCounter = document.getElementById('gallery-counter');
   const galleryButtons = [...document.querySelectorAll('[data-gallery]')];
-  let galleryActive = 'lamp';
+  let galleryActive = 'day';
   let heroRequest = 0;
   let galleryRequest = 0;
 
@@ -49,13 +53,13 @@
   heroButtons.forEach(button => button.addEventListener('click', () => {
     const key = button.dataset.heroScene;
     if (!(key in heroCounts)) return;
-    heroButtons.forEach(b => {
-      const active = b === button;
-      b.classList.toggle('is-active', active);
-      b.setAttribute('aria-pressed', String(active));
-    });
     const request = ++heroRequest;
     switchImage(heroImage, MEDIA + images[key].file, request, () => heroRequest, () => {
+      heroButtons.forEach(b => {
+        const active = b === button;
+        b.classList.toggle('is-active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
       heroImage.alt = images[key].alt;
       heroCaption.textContent = images[key].heroCaption;
       heroCount.textContent = heroCounts[key];
@@ -66,14 +70,14 @@
     button.addEventListener('click', () => {
       const key = button.dataset.gallery;
       if (!images[key]) return;
-      galleryActive = key;
-      galleryButtons.forEach(b => {
-        const active = b === button;
-        b.classList.toggle('is-active', active);
-        b.setAttribute('aria-pressed', String(active));
-      });
       const request = ++galleryRequest;
       switchImage(galleryImage, MEDIA + images[key].file, request, () => galleryRequest, () => {
+        galleryActive = key;
+        galleryButtons.forEach(b => {
+          const active = b === button;
+          b.classList.toggle('is-active', active);
+          b.setAttribute('aria-pressed', String(active));
+        });
         galleryImage.alt = images[key].alt;
         galleryCaption.textContent = images[key].galleryCaption;
         galleryCounter.textContent = String(index + 1).padStart(2, '0') + ' — ' + String(galleryButtons.length).padStart(2, '0');

@@ -10,6 +10,7 @@ import SwiftUI
         if let page = snapshot ?? model.selectedPage {
             PaperEditor(page: page, currentPage: { model.selectedPage },
                         preferences: model.preferences, onChange: { model.edit($0, text: $1, formatting: $2) },
+                        onRestoreSeal: { model.setSeal($1, for: $0) },
                         onCaret: { _ in }, onStroke: { _ in }, onConnect: { model.editor = $0 })
         }
     }
@@ -75,4 +76,50 @@ import SwiftUI
     model.moveToTrash(newID)
     check(try repo.load(inTrash: true).pages.first { $0.id == newID }?.text == "に",
               "moving the selected letter to trash includes its pending composition")
+
+    model.select(destination)
+    let seal = LetterSeal(text: "Yours", shape: .oval, color: .forest)
+    model.setSeal(seal, for: destination)
+    editor.selectAll(nil)
+    editor.setMarkedText(" ", selectedRange: NSRange(location: 1, length: 0), replacementRange: selection)
+    check(model.selectedPage?.seal == seal, "provisional input-method whitespace keeps the letter seal")
+    editor.insertText("Closing", replacementRange: selection)
+    check(model.currentText == "Closing" && model.selectedPage?.seal == seal,
+          "replacing the letter through an input method preserves the seal")
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    editor.selectAll(nil)
+    editor.breakUndoCoalescing()
+    editor.deleteBackward(nil)
+    editor.breakUndoCoalescing()
+    check(model.currentText.isEmpty && model.selectedPage?.seal == nil, "deleting the last writing clears its seal")
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    guard let undo = editor.undoManager, undo.canUndo else { throw Failure(description: "Deletion has no native undo") }
+    undo.undo()
+    check(model.currentText == "Closing" && model.selectedPage?.seal == seal, "Undo restores the writing and its original seal")
+    let revised = LetterSeal(text: "Revised", shape: .scalloped, color: .plum)
+    model.setSeal(revised, for: destination)
+    undo.redo()
+    check(model.currentText.isEmpty && model.selectedPage?.seal == nil, "Redo removes the writing and seal together")
+    undo.undo()
+    check(model.currentText == "Closing" && model.selectedPage?.seal == revised, "another Undo restores the most recently edited seal")
+    model.setSeal(nil, for: destination)
+    undo.redo()
+    undo.undo()
+    check(model.currentText == "Closing" && model.selectedPage?.seal == nil, "Undo honors an explicitly removed seal")
+    model.setSeal(revised, for: destination)
+    editor.selectAll(nil)
+    editor.setMarkedText(" ", selectedRange: NSRange(location: 1, length: 0), replacementRange: selection)
+    check(model.saveNow() && model.currentText == " " && model.selectedPage?.seal == nil,
+          "saving a whitespace-only input-method commit removes the seal")
+
+    model.createPage(text: "End")
+    model.setSeal(seal, for: model.selectedID!)
+    for _ in 0..<3 {
+        editor.deleteBackward(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.04))
+    }
+    check(model.currentText.isEmpty && model.selectedPage?.seal == nil, "repeated Backspace clears the seal")
+    undo.undo()
+    check(!model.currentText.isEmpty && model.selectedPage?.seal == seal,
+          "one Undo restores the last writing and seal after repeated Backspace")
 }

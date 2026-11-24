@@ -6,11 +6,13 @@ final class MechanismStyleTests: XCTestCase {
         try JSONDecoder().decode(WritingPreferences.self, from: Data(json.utf8))
     }
 
-    func testDefaultsKeepOriginalAppearance() {
+    func testDefaultWalnutStyleMatchesItsBrassRail() {
         let preferences = WritingPreferences()
-        XCTAssertEqual(preferences.mechanismStyle, .classic)
+        XCTAssertEqual(preferences.mechanismStyle, .walnut)
+        XCTAssertTrue(preferences.matchRailToStyle)
         XCTAssertEqual(preferences.capsule, .porcelain)
-        XCTAssertEqual(preferences.effectiveRailFinish, .steel)
+        XCTAssertEqual(preferences.rail, .steel)
+        XCTAssertEqual(preferences.effectiveRailFinish, .brass)
     }
 
     func testLegacyV012PreferencesKeepAllValues() throws {
@@ -22,7 +24,7 @@ final class MechanismStyleTests: XCTestCase {
          "nightMode":true,"lampIntensity":0.49,"lampWarmth":0.91}
         """
         let preferences = try decode(legacy)
-        XCTAssertEqual(preferences.mechanismStyle, .classic)
+        XCTAssertEqual(preferences.mechanismStyle, .walnut)
         XCTAssertTrue(preferences.matchRailToStyle)
         XCTAssertEqual(preferences.paper, .cream)
         XCTAssertEqual(preferences.capsule, .cobalt)
@@ -78,9 +80,10 @@ final class MechanismStyleTests: XCTestCase {
         {"mechanismStyle":"futureFinish","capsule":"terracotta","rail":"charcoal",
          "nightMode":true,"lampWarmth":0.24,"soundVolume":0.11}
         """)
-        XCTAssertEqual(preferences.mechanismStyle, .classic)
+        XCTAssertEqual(preferences.mechanismStyle, .walnut)
         XCTAssertEqual(preferences.capsule, .terracotta)
-        XCTAssertEqual(preferences.effectiveRailFinish, .charcoal)
+        XCTAssertEqual(preferences.rail, .charcoal)
+        XCTAssertEqual(preferences.effectiveRailFinish, .brass)
         XCTAssertTrue(preferences.nightMode)
         XCTAssertEqual(preferences.lampWarmth, 0.24)
         XCTAssertEqual(preferences.soundVolume, 0.11)
@@ -93,6 +96,7 @@ final class MechanismStyleTests: XCTestCase {
 
     func testSwitchingPreservesClassicChoicesAndLamp() {
         var preferences = WritingPreferences()
+        preferences.mechanismStyle = .classic
         preferences.capsule = .cobalt
         preferences.rail = .charcoal
         preferences.lampWarmth = 0.23

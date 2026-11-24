@@ -1,5 +1,4 @@
 import SwiftUI
-import ImageIO
 import InkrailCore
 
 /// Original surface details, drawn once and tiled at a fixed physical scale.
@@ -35,15 +34,27 @@ struct PaperTextureLayer: View {
     }
 }
 
+@MainActor
+struct InkrailMakerMark: View {
+    private static let artwork = InkrailResources.artwork("maker-mark")
+    let width: CGFloat
+
+    var body: some View {
+        if let artwork = Self.artwork {
+            Image(decorative: artwork, scale: 1)
+                .renderingMode(.template)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: width, height: width * 5 / 6)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
 private enum PaperTextureTiles {
-    // Decode the standalone bundle resource directly. Name-based SwiftUI Image
-    // lookup can omit loose PNG resources when rendering outside an asset
-    // catalogue; the same cached pixels now serve the app and its previews.
-    static let classic: CGImage? = {
-        guard let url = InkrailResources.bundle.url(forResource: "paper-grain", withExtension: "png"),
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
-    }()
+    static let classic = InkrailResources.artwork("paper-grain")
     static let laid = makeTile(laid: true)
     static let cotton = makeTile(laid: false)
 
@@ -114,25 +125,48 @@ private enum PaperTextureTiles {
     }
 }
 
-/// Pressed relief rather than a coloured stamp: the upper groove catches a
-/// little shadow and its lower edge catches light. The paper remains visible.
+/// The same bevel provides the groove on the sheet and its glancing edge in night light.
 @MainActor
 struct PaperEmbossingMark: View {
     var style: PaperEmbossing
     var depth: Double
+    var highlightOnly = false
 
     var body: some View {
-        let motif = EmbossingMotif(style: style)
-        let amount = min(1, max(0, depth))
+        let strength = pow(min(1, max(0, depth)), 0.72)
+        let shadow = Color(hex: 0x4B4434).opacity(0.90)
+        let light = highlightOnly ? Color.white : Color(hex: 0xFFFCED).opacity(0.95)
+        let face = Color(hex: 0x645A44)
         ZStack {
-            motif.stroke(Color(hex: 0x665F45).opacity(amount * 0.34),
-                         style: StrokeStyle(lineWidth: 1.15, lineCap: .round, lineJoin: .round))
-                .offset(x: -0.5, y: -0.65)
-            motif.stroke(Color.white.opacity(amount * 0.86),
-                         style: StrokeStyle(lineWidth: 1.15, lineCap: .round, lineJoin: .round))
-                .offset(x: 0.5, y: 0.65)
-            motif.stroke(Color(hex: 0x8B8268).opacity(amount * 0.08), lineWidth: 0.45)
+            if style == .makerMark {
+                let mark = InkrailMakerMark(width: 66)
+                ZStack {
+                    if !highlightOnly {
+                        mark.foregroundColor(shadow).offset(x: -0.70, y: -0.90)
+                    }
+                    mark.foregroundColor(light).offset(x: 0.72, y: 1)
+                    // The broad letterfaces catch a little grazing light beneath the night veil.
+                    mark.foregroundColor(.black.opacity(highlightOnly ? 0.5 : 1)).blendMode(.destinationOut)
+                }
+                .compositingGroup()
+                if !highlightOnly {
+                    mark.foregroundColor(face.opacity(0.32))
+                }
+            } else {
+                let motif = EmbossingMotif(style: style)
+                if !highlightOnly {
+                    motif.stroke(shadow, style: StrokeStyle(lineWidth: 1.9, lineCap: .round, lineJoin: .round))
+                        .offset(x: -0.70, y: -0.90)
+                }
+                motif.stroke(light, style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
+                    .offset(x: 0.72, y: 1)
+                if !highlightOnly {
+                    motif.stroke(face.opacity(0.38), style: StrokeStyle(lineWidth: 1.1, lineCap: .round, lineJoin: .round))
+                }
+            }
         }
+        .compositingGroup()
+        .opacity(strength)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -144,7 +178,7 @@ private struct EmbossingMotif: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         switch style {
-        case .none:
+        case .none, .makerMark:
             break
         case .botanical:
             p.addEllipse(in: CGRect(x: 12, y: 8, width: 76, height: 84))
@@ -213,6 +247,7 @@ struct PaperCustomizationPreview: View {
     var body: some View {
         GeometryReader { geometry in
             let rollRailY: CGFloat = preferences.paperStartPosition == .top ? 128 : 158
+            let sheetTextInset: CGFloat = preferences.marginStyle == .none ? 30 : 46
             ZStack(alignment: .topLeading) {
                 PaperSurface(preferences: preferences)
                 Text(preferences.paperMotion == .roll
@@ -223,10 +258,11 @@ struct PaperCustomizationPreview: View {
                     .lineSpacing(7)
                     .foregroundColor(preferences.ribbon.color.opacity(preferences.inkStrength))
                     .frame(width: max(1, geometry.size.width - 154), alignment: .leading)
-                    .padding(.leading, preferences.paperMotion == .roll ? 50 : 30)
+                    .padding(.leading, preferences.paperMotion == .roll ? 50 : sheetTextInset)
                     .padding(.top, preferences.paperMotion == .roll ? rollRailY - 104 : 67)
                 if preferences.paperMotion == .roll {
-                    RailView(finish: preferences.effectiveRailFinish, style: preferences.mechanismStyle)
+                    RailView(finish: preferences.effectiveRailFinish, style: preferences.mechanismStyle,
+                             marginStopInset: preferences.writingMargin)
                         .position(x: geometry.size.width / 2, y: rollRailY)
                     CapsuleView(finish: preferences.capsule, style: preferences.mechanismStyle,
                                 lampOn: preferences.nightMode, lampWarmth: preferences.lampWarmth,
@@ -241,6 +277,6 @@ struct PaperCustomizationPreview: View {
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Paper and type preview")
-        .accessibilityValue("\(preferences.paperMotion.label), \(preferences.paper.label), \(preferences.paperTexture.label), \(preferences.paperEmbossing.label), \(preferences.writingFont.label)")
+        .accessibilityValue("\(preferences.paperMotion.label), \(preferences.paper.label), \(preferences.paperTexture.label), \(preferences.paperEmbossing.label), \(preferences.marginStyle.label) margin style, \(preferences.writingFont.label)")
     }
 }

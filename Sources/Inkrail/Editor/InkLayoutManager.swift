@@ -7,6 +7,8 @@ import InkrailCore
 final class InkLayoutManager: NSLayoutManager {
     var wornInk = true
     var inkBuildup = 0.55
+    var outlinesInkSpread = false
+    private var drawingSpreadOutline = false
     var composing = false
     var paperRollEnabled = false
     private var resolvingProjectedPoint = false
@@ -186,12 +188,14 @@ final class InkLayoutManager: NSLayoutManager {
                     // ribbon colour and advances (never substitute bold fonts).
                     context.setAlpha(impression.spreadOpacity)
                     let spread = impression.spread
+                    drawingSpreadOutline = outlinesInkSpread
                     for (x, y) in [(spread, spread * 0.12),
                                    (-spread * 0.60, spread * 0.45),
                                    (spread * 0.10, -spread * 0.55)] {
                         super.drawGlyphs(forGlyphRange: range,
                                          at: NSPoint(x: origin.x + x, y: origin.y + y))
                     }
+                    drawingSpreadOutline = false
                 }
                 context.setAlpha(impression.opacity)
                 super.drawGlyphs(forGlyphRange: range, at: origin)
@@ -207,6 +211,28 @@ final class InkLayoutManager: NSLayoutManager {
                 super.drawGlyphs(forGlyphRange: NSRange(location: start, length: glyph - start), at: origin)
             }
         }
+    }
+
+    // PDF readers should find each letter once. Paint the extra impressions
+    // from the same positioned font outline and keep the principal strike as text.
+    override func showCGGlyphs(_ glyphs: UnsafePointer<CGGlyph>, positions: UnsafePointer<CGPoint>,
+                               count glyphCount: Int, font: NSFont, textMatrix: CGAffineTransform,
+                               attributes: [NSAttributedString.Key: Any], in context: CGContext) {
+        guard drawingSpreadOutline else {
+            super.showCGGlyphs(glyphs, positions: positions, count: glyphCount, font: font,
+                               textMatrix: textMatrix, attributes: attributes, in: context)
+            return
+        }
+        for index in 0..<glyphCount {
+            var transform = textMatrix
+            transform.tx = positions[index].x
+            transform.ty = positions[index].y
+            if let path = CTFontCreatePathForGlyph(font as CTFont, glyphs[index], &transform) {
+                context.addPath(path)
+            }
+        }
+        let stroke = (attributes[.strokeWidth] as? NSNumber)?.doubleValue ?? 0
+        context.drawPath(using: stroke < 0 ? .fillStroke : .fill)
     }
 
     /// ASCII bases can belong to non-ASCII graphemes (e + combining acute),

@@ -6,17 +6,37 @@ final class CustomizationTests: XCTestCase {
         try JSONDecoder().decode(WritingPreferences.self, from: Data(json.utf8))
     }
 
-    func testNewDefaultsRetainTheOriginalPaperFontAndSound() {
+    func testDefaultPaperTypeAndSound() {
         let preferences = WritingPreferences()
+        XCTAssertEqual(preferences.paperMotion, .roll)
         XCTAssertEqual(preferences.paperTexture, .classic)
-        XCTAssertEqual(preferences.textureStrength, 0.55)
-        XCTAssertEqual(preferences.paperEmbossing, .none)
-        XCTAssertEqual(preferences.embossingDepth, 0.45)
+        XCTAssertEqual(preferences.textureStrength, 0.70)
+        XCTAssertEqual(preferences.paperEmbossing, .makerMark)
+        XCTAssertEqual(preferences.marginStyle, .none)
+        XCTAssertEqual(preferences.embossingDepth, 0.70)
         XCTAssertEqual(preferences.writingFont, .courier)
         XCTAssertEqual(preferences.typewriterSound, .classic)
         XCTAssertEqual(preferences.paper, .ivory)
         XCTAssertEqual(preferences.fontSize, 20)
+        XCTAssertEqual(preferences.soundVolume, 0.55)
+    }
+
+    func testPreviouslySavedDefaultsRetainTheirValues() throws {
+        let preferences = try decode("""
+        {"paperMotion":"sheet","paperStartPosition":"top","textureStrength":0.55,
+         "paperEmbossing":"none","embossingDepth":0.45,"mechanismStyle":"classic",
+         "matchRailToStyle":true,"soundVolume":0.30,"lampIntensity":0.82,"lampWarmth":0.65}
+        """)
+        XCTAssertEqual(preferences.paperMotion, .sheet)
+        XCTAssertEqual(preferences.paperStartPosition, .top)
+        XCTAssertEqual(preferences.textureStrength, 0.55)
+        XCTAssertEqual(preferences.paperEmbossing, .none)
+        XCTAssertEqual(preferences.embossingDepth, 0.45)
+        XCTAssertEqual(preferences.mechanismStyle, .classic)
+        XCTAssertTrue(preferences.matchRailToStyle)
         XCTAssertEqual(preferences.soundVolume, 0.30)
+        XCTAssertEqual(preferences.lampIntensity, 0.82)
+        XCTAssertEqual(preferences.lampWarmth, 0.65)
     }
 
     func testLiteralLegacyPreferencesPreserveEveryExistingField() throws {
@@ -42,7 +62,7 @@ final class CustomizationTests: XCTestCase {
         expected.wornInk = false
         expected.wideMargins = false
         expected.curvedPaper = false
-        expected.garden = true
+        expected.marginStyle = .botanical
         expected.soundEnabled = false
         expected.soundVolume = 0.17
         expected.nightMode = true
@@ -67,6 +87,32 @@ final class CustomizationTests: XCTestCase {
         XCTAssertEqual(preferences, expected)
     }
 
+    func testMarginStyleMigratesLegacyToggleAndHonorsExplicitSelection() throws {
+        XCTAssertEqual(try decode(#"{"garden":false}"#).marginStyle, .none)
+        XCTAssertEqual(try decode(#"{"garden":true,"marginStyle":null}"#).marginStyle, .botanical)
+        XCTAssertEqual(try decode(#"{"garden":true,"marginStyle":"none"}"#).marginStyle, .none)
+        XCTAssertEqual(try decode(#"{"garden":false,"marginStyle":"artDeco"}"#).marginStyle, .artDeco)
+        let unknown = try decode(#"{"marginStyle":"future-style","garden":true,"wideMargins":false}"#)
+        XCTAssertEqual(unknown.marginStyle, .none)
+        XCTAssertFalse(unknown.wideMargins)
+    }
+
+    func testMarginStylesRoundTripWithoutChangingTheWritingArea() throws {
+        for style in PaperMarginStyle.allCases {
+            var preferences = WritingPreferences()
+            preferences.wideMargins = false
+            let writingMargin = preferences.writingMargin
+            preferences.marginStyle = style
+            let data = try JSONEncoder().encode(preferences)
+            let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(saved["marginStyle"] as? String, style.rawValue)
+            XCTAssertNil(saved["garden"])
+            let restored = try JSONDecoder().decode(WritingPreferences.self, from: data)
+            XCTAssertEqual(restored.marginStyle, style)
+            XCTAssertEqual(restored.writingMargin, writingMargin)
+        }
+    }
+
     func testUnknownChoicesFallBackIndependently() throws {
         let preferences = try decode("""
         {"paperTexture":"future-grain","paperEmbossing":"future-seal",
@@ -75,7 +121,7 @@ final class CustomizationTests: XCTestCase {
          "fontSize":26,"soundVolume":0,"lampWarmth":0.12}
         """)
         XCTAssertEqual(preferences.paperTexture, .classic)
-        XCTAssertEqual(preferences.paperEmbossing, .none)
+        XCTAssertEqual(preferences.paperEmbossing, .makerMark)
         XCTAssertEqual(preferences.writingFont, .courier)
         XCTAssertEqual(preferences.typewriterSound, .classic)
         XCTAssertEqual(preferences.textureStrength, 0.77)
@@ -205,8 +251,8 @@ final class CustomizationTests: XCTestCase {
             preferences.paperTexture = .laid
             preferences.paperEmbossing = .botanical
             preferences.clamp()
-            XCTAssertEqual(preferences.textureStrength, 0.55)
-            XCTAssertEqual(preferences.embossingDepth, 0.45)
+            XCTAssertEqual(preferences.textureStrength, 0.70)
+            XCTAssertEqual(preferences.embossingDepth, 0.70)
             XCTAssertEqual(preferences.paperTexture, .laid)
             XCTAssertEqual(preferences.paperEmbossing, .botanical)
         }

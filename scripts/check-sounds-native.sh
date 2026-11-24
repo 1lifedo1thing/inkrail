@@ -36,6 +36,7 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
     "$INKRAIL_ROOT/Sources/InkrailCore/Customization.swift" \
     "$INKRAIL_ROOT/Sources/InkrailCore/DeskAppearance.swift" \
     "$INKRAIL_ROOT/Sources/InkrailCore/Page.swift" \
+    "$INKRAIL_ROOT/Sources/InkrailCore/LetterSeal.swift" \
     "$INKRAIL_ROOT/Sources/InkrailCore/MechanismStyle.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Services/Resources.swift" \
     "$INKRAIL_ROOT/scripts/fixtures/sound-check.swift" \

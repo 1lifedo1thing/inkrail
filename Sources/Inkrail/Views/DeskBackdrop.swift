@@ -10,8 +10,8 @@ struct DeskBackdrop: View {
     var paperWidth: CGFloat
     var focusMode: Bool
     var nightMode: Bool
-    var lampWarmth: Double = 0.65
-    var lampIntensity: Double = 0.82
+    var lampWarmth: Double = WritingPreferences.defaults.lampWarmth
+    var lampIntensity: Double = WritingPreferences.defaults.lampIntensity
 
     private var visibleFinish: DeskFinish { focusMode ? .charcoal : finish }
 
@@ -404,13 +404,8 @@ struct DeskAppearancePreview: View {
                     if preferences.nightMode {
                         // This preview has no capsule. Reveal only the desk
                         // sources, rather than inventing an unmounted light.
-                        ZStack {
-                            Color.black.opacity(0.80)
-                            DeskPaperLightMask(scene: scene, size: paperSize)
-                                .opacity(LampAppearance(warmth: preferences.lampWarmth,
-                                                        intensity: preferences.lampIntensity).intensity * 0.92)
-                                .blendMode(.destinationOut)
-                        }.compositingGroup()
+                        NightLighting(size: paperSize, headX: 0, railY: 0, preferences: preferences,
+                                      deskScene: scene, showsCapsuleLight: false)
                     }
                 }
                     .compositingGroup()

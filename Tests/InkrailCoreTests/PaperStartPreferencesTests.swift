@@ -6,9 +6,9 @@ final class PaperStartPreferencesTests: XCTestCase {
         try JSONDecoder().decode(WritingPreferences.self, from: Data(json.utf8))
     }
 
-    func testDefaultAndMissingPositionKeepTopStartingLayout() throws {
-        XCTAssertEqual(WritingPreferences().paperStartPosition, .top)
-        XCTAssertEqual(try decode("{}").paperStartPosition, .top)
+    func testDefaultAndMissingPositionStartAtBottom() throws {
+        XCTAssertEqual(WritingPreferences().paperStartPosition, .bottom)
+        XCTAssertEqual(try decode("{}").paperStartPosition, .bottom)
         XCTAssertEqual(PaperStartPosition.allCases.map(\.id), ["top", "bottom"])
     }
 
@@ -43,24 +43,24 @@ final class PaperStartPreferencesTests: XCTestCase {
         XCTAssertEqual(try decode(legacy), expected)
     }
 
-    func testNullPositionUsesTopWithoutResettingOtherPreferences() throws {
+    func testNullPositionUsesBottomWithoutResettingOtherPreferences() throws {
         let preferences = try decode("""
         {"paperStartPosition":null,"mechanismStyle":"champagne",
          "matchRailToStyle":false,"soundVolume":0,"nightMode":true}
         """)
-        XCTAssertEqual(preferences.paperStartPosition, .top)
+        XCTAssertEqual(preferences.paperStartPosition, .bottom)
         XCTAssertEqual(preferences.mechanismStyle, .champagne)
         XCTAssertFalse(preferences.matchRailToStyle)
         XCTAssertEqual(preferences.soundVolume, 0)
         XCTAssertTrue(preferences.nightMode)
     }
 
-    func testUnknownPositionUsesTopWithoutResettingOtherPreferences() throws {
+    func testUnknownPositionUsesBottomWithoutResettingOtherPreferences() throws {
         let preferences = try decode("""
         {"paperStartPosition":"futurePosition","paper":"white",
          "capsule":"sage","rail":"charcoal","lampWarmth":0.13}
         """)
-        XCTAssertEqual(preferences.paperStartPosition, .top)
+        XCTAssertEqual(preferences.paperStartPosition, .bottom)
         XCTAssertEqual(preferences.paper, .white)
         XCTAssertEqual(preferences.capsule, .sage)
         XCTAssertEqual(preferences.rail, .charcoal)

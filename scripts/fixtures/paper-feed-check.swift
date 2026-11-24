@@ -24,6 +24,7 @@ private final class PaperFeedProbe {
     private var pageID = UUID()
     private var text = ""
     private var formatting: [TextFormatRun] = []
+    private var seal: LetterSeal?
     private var activeEmphasis: TextEmphasis = []
     private var preferences = WritingPreferences()
     private var latestCaret: CaretPosition?
@@ -43,6 +44,8 @@ private final class PaperFeedProbe {
         window.isRestorable = false
         window.isReleasedWhenClosed = false
         window.probeUndoManager.groupsByEvent = false
+        preferences.paperMotion = .sheet
+        preferences.paperStartPosition = .top
         preferences.soundEnabled = false
         host.sizingOptions = []
         host.autoresizingMask = [.width, .height]
@@ -51,7 +54,7 @@ private final class PaperFeedProbe {
     }
 
     private func representation() -> PaperEditor {
-        PaperEditor(page: Page(id: pageID, text: text, formatting: formatting), preferences: preferences,
+        PaperEditor(page: Page(id: pageID, text: text, formatting: formatting, seal: seal), preferences: preferences,
                     onChange: { [weak self] _, text, formatting in
                         guard let self else { return }
                         self.text = text
@@ -158,13 +161,12 @@ private final class PaperFeedProbe {
         """
         let decoder = JSONDecoder()
         let old = try decoder.decode(WritingPreferences.self, from: Data(legacy.utf8))
-        check(old.paperStartPosition == .top, "legacy preferences default to Top")
-        check(old.paperMotion == .sheet && old.effectivePaperStartPosition == .top,
-              "legacy preferences keep Sheet motion and their original starting position")
-        check(old.paperTexture == .classic && old.textureStrength == 0.55
-              && old.paperEmbossing == .none && old.embossingDepth == 0.45
+        check(old.paperMotion == .roll && old.effectivePaperStartPosition == .bottom,
+              "missing paper motion and starting position default to Paper roll and Bottom")
+        check(old.paperTexture == .classic && old.textureStrength == 0.70
+              && old.paperEmbossing == .makerMark && old.embossingDepth == 0.70
               && old.writingFont == .courier && old.typewriterSound == .classic,
-              "legacy preferences retain original paper, Courier and Classic sounds")
+              "missing surface, font and sound settings use their defaults")
         check(old.mechanismStyle == .walnut && !old.matchRailToStyle && old.rail == .charcoal
               && old.fontSize == 24 && old.nightMode && old.paper == .cream
               && old.capsule == .cobalt && old.ribbon == .oxblood
@@ -173,13 +175,13 @@ private final class PaperFeedProbe {
         for field in ["null", "\"future-paper-feed\""] {
             let json = "{\"paperStartPosition\":\(field),\"mechanismStyle\":\"walnut\",\"fontSize\":24}"
             let decoded = try decoder.decode(WritingPreferences.self, from: Data(json.utf8))
-            check(decoded.paperStartPosition == .top && decoded.mechanismStyle == .walnut
+            check(decoded.paperStartPosition == .bottom && decoded.mechanismStyle == .walnut
                   && decoded.fontSize == 24, "\(field) position falls back without resetting other values")
         }
-        var bottom = old
-        bottom.paperStartPosition = .bottom
-        let restored = try decoder.decode(WritingPreferences.self, from: JSONEncoder().encode(bottom))
-        check(restored == bottom, "Bottom preference round-trips with all existing values")
+        var top = old
+        top.paperStartPosition = .top
+        let restored = try decoder.decode(WritingPreferences.self, from: JSONEncoder().encode(top))
+        check(restored == top, "Top preference round-trips with all existing values")
         let customized = try decoder.decode(WritingPreferences.self, from: Data("""
         {"paperStartPosition":"bottom","paperTexture":"cotton","textureStrength":0.71,
          "paperEmbossing":"botanical","embossingDepth":0.32,"writingFont":"georgia",
@@ -196,7 +198,7 @@ private final class PaperFeedProbe {
          "typewriterSound":"future","textureStrength":-2,"embossingDepth":7,
          "paperStartPosition":"bottom","lampWarmth":0.19}
         """.utf8))
-        check(future.paperTexture == .classic && future.paperEmbossing == .none
+        check(future.paperTexture == .classic && future.paperEmbossing == .makerMark
               && future.writingFont == .courier && future.typewriterSound == .classic
               && future.textureStrength == 0 && future.embossingDepth == 1
               && future.paperStartPosition == .bottom && future.lampWarmth == 0.19,
@@ -214,7 +216,7 @@ private final class PaperFeedProbe {
         for value in ["null", "\"future-motion\""] {
             let decoded = try decoder.decode(WritingPreferences.self, from: Data(
                 "{\"paperMotion\":\(value),\"paperStartPosition\":\"bottom\",\"fontSize\":24}".utf8))
-            check(decoded.paperMotion == .sheet && decoded.paperStartPosition == .bottom && decoded.fontSize == 24,
+            check(decoded.paperMotion == .roll && decoded.paperStartPosition == .bottom && decoded.fontSize == 24,
                   "\(value) paper motion falls back without resetting layout or type size")
         }
     }
@@ -1253,6 +1255,58 @@ private final class PaperFeedProbe {
         }
     }
 
+    private func checkSealPlacement() {
+        let letter = String(repeating: "A line of writing.\n", count: 45) + "Yours,"
+        let selection = NSRange(location: 2, length: 4)
+        let clip = scroll.contentView
+        for motion in [PaperMotion.sheet, .roll] {
+            for position in [PaperStartPosition.top, .bottom] {
+                let label = "\(motion.rawValue)/\(position.rawValue)"
+                preferences.paperMotion = motion
+                preferences.paperStartPosition = position
+                pageID = UUID()
+                text = letter
+                formatting = []
+                refresh()
+                settle()
+                editor.setSelectedRange(selection)
+                editor.scrollRangeToVisible(selection)
+                settle()
+                seal = LetterSeal(text: "Yours truly")
+                refresh()
+                settle()
+                let appliedOffset = clip.bounds.minY
+                check(editor.selectedRange() == selection && editor.string == letter,
+                      "\(label) applying the seal preserves the body and selection")
+                if let caret = latestCaret, let frame = caret.sealFrame {
+                    let rail = caret.railCenterY(paperHeight: clip.bounds.height + 160, editorHeight: clip.bounds.height,
+                                                 position: position, hasText: true)
+                    check(abs(frame.midX - clip.bounds.width / 2) < 1 && frame.minY >= 0
+                          && frame.maxY <= min(clip.bounds.height, rail - 53),
+                          "\(label) the seal is centered and fully visible above the hammer")
+                } else { check(false, "\(label) applying the seal reveals the end of the letter") }
+                clip.scroll(to: .zero)
+                scroll.reflectScrolledClipView(clip)
+                settle()
+                check(latestCaret?.sealFrame == nil, "\(label) the seal scrolls away with the closing")
+
+                editor.setSelectedRange(NSRange(location: letter.utf16.count, length: 0))
+                insert("\nA new closing line.\n")
+                var end = clip.bounds
+                end.origin.y = editor.frame.maxY
+                clip.scroll(to: clip.constrainBoundsRect(end).origin)
+                scroll.reflectScrolledClipView(clip)
+                settle()
+                check(clip.bounds.minY > appliedOffset && (latestCaret?.sealFrame?.minY ?? 0) > caretBottom(),
+                      "\(label) the seal follows the final line after editing")
+                seal = nil
+                refresh()
+                settle()
+                check(latestCaret?.sealFrame == nil, "\(label) removing the seal clears it from the paper")
+            }
+        }
+    }
+
     func run() throws -> Bool {
         defer {
             window.orderOut(nil)
@@ -1413,6 +1467,7 @@ private final class PaperFeedProbe {
         try checkHeadingMarkers()
         try checkArrowNavigation()
         try checkEditorStorage { value, message in check(value, message) }
+        checkSealPlacement()
 
         print("\(checkCount - failures.count)/\(checkCount) standalone checks passed.")
         print("Not exercised: real OS input methods, hardware keyboard events, menu/clipboard actions, audio or visual appearance.")

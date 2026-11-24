@@ -4,7 +4,9 @@ import InkrailCore
 @MainActor
 struct RailView: View {
     var finish: RailFinish
-    var style: MechanismStyle = .classic
+    var style: MechanismStyle = WritingPreferences.defaults.mechanismStyle
+    /// From the end of the rail to the centre of each fixed brass collar.
+    var marginStopInset: CGFloat? = nil
 
     private var colors: [Color] {
         switch finish {
@@ -29,9 +31,34 @@ struct RailView: View {
                 Spacer(minLength: 0)
                 endCap
             }
+            if let marginStopInset {
+                HStack(spacing: 0) {
+                    marginStop
+                    Spacer(minLength: 0)
+                    marginStop
+                }
+                .padding(.horizontal, marginStopInset - 3)
+            }
         }
         .frame(height: 30)
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private var marginStop: some View {
+        let collar = RoundedRectangle(cornerRadius: 1.4)
+        return collar.fill(LinearGradient(stops: [
+            .init(color: Color(hex: 0xB6A27B), location: 0),
+            .init(color: Color(hex: 0xD9C9A4), location: 0.24),
+            .init(color: Color(hex: 0xA38C62), location: 0.58),
+            .init(color: Color(hex: 0x776344), location: 1)
+        ], startPoint: .top, endPoint: .bottom))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(.white.opacity(0.33))
+                .frame(width: 0.7, height: 15).padding(.leading, 1)
+        }
+        .overlay(collar.strokeBorder(Color(hex: 0x362D1E).opacity(0.6), lineWidth: 0.6))
+        .frame(width: 6, height: 19)
     }
 
     private var endCap: some View {
@@ -51,11 +78,11 @@ struct RailView: View {
 @MainActor
 struct CapsuleView: View {
     var finish: CapsuleFinish
-    var style: MechanismStyle = .classic
+    var style: MechanismStyle = WritingPreferences.defaults.mechanismStyle
     var striking = false
     var lampOn = false
-    var lampWarmth: Double = 0.65
-    var lampIntensity: Double = 0.82
+    var lampWarmth: Double = WritingPreferences.defaults.lampWarmth
+    var lampIntensity: Double = WritingPreferences.defaults.lampIntensity
 
     private var lamp: LampAppearance {
         LampAppearance(warmth: lampWarmth, intensity: lampIntensity)
@@ -125,6 +152,11 @@ struct CapsuleView: View {
             }
             .frame(width: 29, height: 4)
             .offset(x: -25, y: 0)
+            InkrailMakerMark(width: 14)
+                .foregroundColor(finish == .cobalt || finish == .graphite
+                    ? Color(hex: 0xE8E1CA).opacity(0.58) : Color(hex: 0x242921).opacity(0.50))
+                .shadow(color: .white.opacity(0.34), radius: 0, y: 0.5)
+                .offset(x: 25)
         }
     }
 }

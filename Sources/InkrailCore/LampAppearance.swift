@@ -23,8 +23,8 @@ public struct LampAppearance: Equatable, Sendable {
     public let intensity: Double
 
     public init(warmth: Double, intensity: Double) {
-        self.warmth = min(1, max(0, warmth.isFinite ? warmth : 0.65))
-        self.intensity = min(1, max(0.25, intensity.isFinite ? intensity : 0.82))
+        self.warmth = min(1, max(0, warmth.isFinite ? warmth : WritingPreferences.defaults.lampWarmth))
+        self.intensity = min(1, max(0.25, intensity.isFinite ? intensity : WritingPreferences.defaults.lampIntensity))
     }
 
     /// Slightly cool white -> warm white -> amber. Warmth changes RGB,

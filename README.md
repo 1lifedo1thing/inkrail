@@ -11,41 +11,37 @@
 🎥 Watch the macOS demo ↓
 <p align="center">
   <a href="https://youtu.be/oanl6tyIvMo">
-    <img src="screenshots/inkrail-light-mode.png" alt="Watch the Inkrail demo" width="720">
+    <img src="screenshots/inkrail-light-mode.png" alt="Watch the Inkrail macOS demo" width="480">
   </a>
 </p>
 
 <details>
-  <summary>📸 View screenshots</summary>
+  <summary>📸 View macOS screenshots</summary>
 
-  Captured on macOS.
-  
-  ##### Light Mode
-  ![Inkrail in light mode](screenshots/inkrail-light-mode.png)
+| Light mode | Night writing |
+| --- | --- |
+| ![Ivory paper with an embossed IR mark above the walnut carriage](screenshots/inkrail-light-mode.png) | ![A pool of warm light illuminates the current line on dark paper](screenshots/inkrail-night-mode.png) |
 
-  ##### Maker’s mark
-  ![The Classic carriage at a walnut writing desk, with brass margin stops and an IR impression in the paper](screenshots/inkrail-makers-mark.png)
+| Focus Mode | Paper embossings |
+| --- | --- |
+| ![A wide sheet with the walnut carriage and the desk controls hidden](screenshots/inkrail-focus-mode.png) | ![Botanical, Monogram, Sunburst and Maker’s mark at 45% relief in day and night light](screenshots/inkrail-paper-embossings.png) |
 
-  ##### Paper embossings
-  ![Botanical, Monogram, Sunburst and Maker’s mark on ivory paper at 45% relief in day and night light](screenshots/inkrail-paper-embossings.png)
+| Paper margins | Machine styles |
+| --- | --- |
+| ![Green sprigs and purple buds along both edges of the paper](screenshots/inkrail-paper-margins.png) | ![Twelve carriage finishes with Walnut selected](screenshots/inkrail-machine-customizations.png) |
 
-  ##### Night View
-  ![Inkrail in night mode](screenshots/inkrail-night-mode.png)
+| Desk settings | Sound settings |
+| --- | --- |
+| ![The Walnut study preset with paired bronze lamps in the desk preview](screenshots/inkrail-desk-customizations.png) | ![Six typewriter sound presets with volume and preview controls](screenshots/inkrail-sound-customizations.png) |
 
-  ##### Night View with Lamp
-  ![Inkrail in night mode with desk lamps](screenshots/inkrail-night-lamp.png)
+| Lighting settings | Storage options |
+| --- | --- |
+| ![Night writing preview with sliders for lamp intensity and warmth](screenshots/inkrail-light-customizations.png) | ![The letters folder with controls to change its location or show it in Finder](screenshots/inkrail-storage-options.png) |
 
-  ##### Focus Mode
-  ![Inkrail in focus mode](screenshots/inkrail-focus-mode.png)
+| Seal options | Sealed letter |
+| --- | --- |
+| ![Seal letter dialog with a wax preview, inscription, shape and color choices](screenshots/inkrail-seal-options.png) | ![A red wax seal bearing the initials AV beneath the letter’s closing line](screenshots/inkrail-letter-with-seal-preview.png) |
 
-  ##### Font Customization
-  ![Inkrail font customization](screenshots/inkrail-font-customization.png)
-
-  ##### Desk Customization
-  ![Inkrail desk customization](screenshots/inkrail-desk-customization.png)
-
-  ##### Machine Customization
-  ![Inkrail machine customization](screenshots/inkrail-machine-customization.png)
 </details>
 
 ## Make yourself at home
@@ -60,7 +56,7 @@ or Celestial constellations. Choose **None** for a plain edge.
 In **Top** mode, the capsule and rail move below the visible writing when you
 edit an earlier paragraph.
 
-## Install directly
+## Install
 
 ### macOS
 
@@ -86,12 +82,11 @@ Get Inkrail from the [Microsoft Store](https://apps.microsoft.com/detail/9nq2fds
 | ARM64, including Snapdragon | `Inkrail-Windows-arm64.zip` |
 
 Choose **Extract All** and open **Inkrail.exe** in the extracted folder. Keep the folder together if you move the app.
-If Microsoft Defender SmartScreen shows **Windows protected your PC** on first launch, select **More info**, then **Run anyway** to open the extracted app.
 If Inkrail asks for the Microsoft Edge WebView2 Evergreen Runtime, install it and reopen the app. [Get WebView2 from Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/)
 
 ## Build from source
 
-Both Windows architectures build from the same .NET host and WebView2 editor. [Build the Windows ZIPs or publish all three release assets](docs/DEVELOPMENT.md#build-the-windows-zips).
+For Windows x64 and ARM64, follow the [Windows build instructions](docs/DEVELOPMENT.md#build-the-windows-zips).
 
 To build the Mac app on macOS 13 or later with Apple's Swift 5.9+ developer tools, double-click **Launch.command** or run the following commands.
 
@@ -186,21 +181,6 @@ Inkrail saves letters locally. You can open the current library from within the 
   Inkrail removes the deleted letter when it next checks.
 
 Keep a separate backup of your library. [Storage & recovery on Mac and Windows →](docs/STORAGE.md)
-
-## Sound credits
-
-Thank you to the recordists who shared the typewriter sounds used in Inkrail under CC0.
-
-| Preset | Typewriter | Recorded by |
-| --- | --- | --- |
-| Classic | Hermes Precisa 305 | Joseph SARDIN (BigSoundBank) |
-| Soft | Hermes 3000 | supersupernator |
-| Royal | Royal Quiet De Luxe | videog |
-| Vintage | 1930s manual | monotraum |
-| Portable | Hermes Baby | evsecrets |
-| Electric | IBM Selectric II | secretmojo |
-
-[Original recordings, license, and editing notes](Sources/Inkrail/Resources/Sound-Credits.txt)
 
 ## Inspiration
 

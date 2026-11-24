@@ -28,6 +28,7 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
     "$INKRAIL_ROOT/Sources/Inkrail/Compatibility/InkrailState.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Services/Resources.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Views/Palette.swift" \
+    "$INKRAIL_ROOT/Sources/Inkrail/Views/LetterSealView.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Views/WritingFont+AppKit.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Views/PaperDetails.swift" \
     "$INKRAIL_ROOT/Sources/Inkrail/Views/MechanismMaterials.swift" \

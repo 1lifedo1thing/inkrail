@@ -7,7 +7,7 @@ public enum PaperMotion: String, Codable, CaseIterable, Identifiable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)
-        self = Self(rawValue: value) ?? .sheet
+        self = Self(rawValue: value) ?? WritingPreferences.defaults.paperMotion
     }
 }
 
@@ -30,22 +30,35 @@ public enum PaperTexture: String, Codable, CaseIterable, Identifiable, Sendable 
     }
 }
 
-public enum PaperEmbossing: String, Codable, CaseIterable, Identifiable, Sendable {
-    case none, botanical, monogram, sunburst
+public enum PaperMarginStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case none, botanical, ledger, artDeco, celestial
 
     public var id: String { rawValue }
-    public var label: String { rawValue.capitalized }
+    public var label: String { self == .artDeco ? "Art Deco" : rawValue.capitalized }
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: value) ?? .none
+    }
+}
+
+public enum PaperEmbossing: String, Codable, CaseIterable, Identifiable, Sendable {
+    case none, botanical, monogram, sunburst, makerMark
+
+    public var id: String { rawValue }
+    public var label: String { self == .makerMark ? "Maker’s mark" : rawValue.capitalized }
     public var subtitle: String {
         switch self {
         case .none: return "Unmarked paper"
         case .botanical: return "A quiet botanical impression"
         case .monogram: return "A small Inkrail imprint"
         case .sunburst: return "A subtle radiating seal"
+        case .makerMark: return "The carriage initials pressed into paper"
         }
     }
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)
-        self = Self(rawValue: value) ?? .none
+        self = Self(rawValue: value) ?? WritingPreferences.defaults.paperEmbossing
     }
 }
 

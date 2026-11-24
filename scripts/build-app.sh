@@ -16,18 +16,26 @@ echo "Swift compiler: $(xcrun --sdk macosx --find swift)"
 echo "macOS SDK: $(xcrun --sdk macosx --show-sdk-path)"
 echo "Checking SwiftUI state compatibility…"
 bash "$ROOT/scripts/check-swiftui.sh"
-echo "Building Inkrail for $(uname -m)…"
-# Resolve the compiler through the selected Apple toolchain, not a Swift
-# executable that a Python environment, Homebrew or another PATH entry adds.
-xcrun --sdk macosx swift build -c release --product Inkrail
-BIN="$(xcrun --sdk macosx swift build -c release --show-bin-path)"
+# Single-architecture builds also work with standalone Command Line Tools.
+# Some SwiftPM versions share one product directory across architectures.
+SLICES=()
+for arch in x86_64 arm64; do
+    echo "Building Inkrail for ${arch}…"
+    BUILD=(xcrun --sdk macosx swift build -c release --arch "$arch" --scratch-path "$ROOT/.build/macos-$arch")
+    "${BUILD[@]}" --product Inkrail
+    BIN="$("${BUILD[@]}" --show-bin-path)"
+    SLICES+=("$BIN/Inkrail")
+done
 FINAL_APP="$ROOT/dist/Inkrail.app"
 mkdir -p "$ROOT/dist"
 STAGING_DIR="$(mktemp -d "$ROOT/dist/.inkrail-build.XXXXXX")"
 trap 'rm -rf "$STAGING_DIR"' EXIT
 APP="$STAGING_DIR/Inkrail.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN/Inkrail" "$APP/Contents/MacOS/Inkrail"
+EXECUTABLE="$APP/Contents/MacOS/Inkrail"
+xcrun lipo -create "${SLICES[@]}" -output "$EXECUTABLE"
+xcrun lipo "$EXECUTABLE" -verify_arch x86_64
+xcrun lipo "$EXECUTABLE" -verify_arch arm64
 cp "$ROOT/packaging/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 BUNDLE="$BIN/Inkrail_Inkrail.bundle"
@@ -64,7 +72,7 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # Ad-hoc signing for a local build. This is NOT Developer ID signing/notarization.
 codesign --force --sign - "$APP"
-codesign --verify --deep --strict "$APP"
+codesign --verify --all-architectures --deep --strict "$APP"
 # Publish only after the icon and signature are in place. Keep an existing
 # bundle directory so Finder references continue to identify the same app.
 if [[ -d "$FINAL_APP" ]]; then

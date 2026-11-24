@@ -1,5 +1,7 @@
 import {crossedBellPoint} from './margin-bell.js';
+import {defaults} from './defaults.js';
 import {emphasis, markdownLines, shortcutAt, expandFormatting, compactFormatting} from './markdown.js';
+import {drawSeal, hasLetterText, normalizeSeal} from './seal.js';
 
 export const writingFonts = Object.freeze({
   courier:'"Inkrail Courier Prime", monospace',
@@ -133,9 +135,13 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
   placeholder.textContent='Begin anywhere.';
   placeholder.setAttribute('aria-hidden','true');
   placeholder.hidden=true;
-  scroller.append(node,placeholder);surface.append(scroller);
+  const sealFooter=document.createElement('div');
+  sealFooter.className='ink-seal-footer';
+  scroller.append(node,sealFooter,placeholder);surface.append(scroller);
   let page={text:''}, text='', style=new Uint8Array(), settings={}, selection=[0,0], typing=0, typingOverride=false;
   let endings=new Map(), preferredEnding='\n', inkKey='';
+  // A separate seal edit takes precedence over earlier text undo checkpoints.
+  let sealRevision = 0;
   const curvedLines=new Map(), rolledParagraphs=new Map();
   let selectingByPointer=false;
   let lastGeometry=null, viewport={height:0,width:0,inset:0};
@@ -158,7 +164,8 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     return {...page,text:decoded.join(''),formatting:compactFormatting(renderedStyles)};
   }
   function checkpoint() {
-    return {text,style:style.slice(),endings:new Map(endings),selection:[...selection],typing,typingOverride};
+    return {text,style:style.slice(),endings:new Map(endings),selection:[...selection],typing,typingOverride,
+      seal:page.seal,sealRevision};
   }
   function history(kind) {
     const now=performance.now();
@@ -273,6 +280,46 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
       part.textContent=value.slice(start,end);segment.append(part);start=end;
     }
   }
+  function renderLine(l,index,worn) {
+    const raw=l.raw, format=l.format, prefix=l.prefix;
+    const line=document.createElement('div');
+    line.className='ink-line'; line.dataset.index=String(index);
+    if(prefix) {
+      line.classList.add('ink-block-'+prefix.kind);
+      if(prefix.kind==='heading') line.style.setProperty('--heading-scale',String(l.scale));
+      if(prefix.kind==='list') line.style.setProperty('--marker-width',prefix.source.length+'ch');
+    }
+    const mark=prefix?.kind==='heading'?prefix.source.length:0;
+    for(let j=0;j<raw.length;) {
+      const start=j++,mask=format[start],hidden=start<mark;
+      while(j<raw.length&&format[j]===mask&&(j<mark)===hidden) j++;
+      const segment=document.createElement('span');
+      styleSpan(segment,mask);
+      if(hidden) segment.className='ink-heading-marker';
+      const value=raw.slice(start,j);
+      if(worn&&!hidden)pressRange(segment,l.start+start,l.start+j,l);
+      else if(!hidden)flatRun(segment,value);
+      else segment.textContent=value;
+      line.append(segment);
+    }
+    if(!raw) line.append(document.createElement('br'));
+    return line;
+  }
+  // Build the full flat impression independently of the scroll and roller caches.
+  function printContent() {
+    const content=node.cloneNode(false);
+    for (const attribute of ['contenteditable','role','aria-label','aria-multiline']) content.removeAttribute(attribute);
+    content.style.paddingBlock='0';
+    for(const [i,line] of rendered.entries()) {
+      const printed=renderLine(line,i,settings.wornInk!==false);
+      if(line.prefix?.kind==='heading') printed.querySelectorAll('.ink-heading-marker').forEach(marker=>marker.remove());
+      content.append(printed);
+    }
+    const fragment=document.createDocumentFragment();
+    fragment.append(content);
+    if(!sealFooter.hidden) fragment.append(sealFooter.cloneNode(true));
+    return fragment;
+  }
   function render(force=false) {
     if(composing) return;
     inkKey='';
@@ -286,34 +333,14 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
       l.sourceDelta=sourceDelta;
       const prefix=l.block&&raw.slice(l.block.source.length).trim()?l.block:null;
       const scale=prefix?.kind==='heading'?1.05+(6-prefix.level)*.08:1;
-      l.pointSize=size*scale;
+      l.prefix=prefix;l.scale=scale;l.pointSize=size*scale;
       if(endings.get(l.end)?.value.length===2)sourceDelta++;
       const previous=old[i], existing=node.children[i];
       const changed=force||!existing||!previous||previous.raw!==raw||previous.literal!==l.literal||previous.opt!==opt||
         (worn&&(previous.start!==l.start||previous.sourceDelta!==l.sourceDelta))||format.length!==previous.format.length||format.some((m,k)=>m!==previous.format[k]);
       l.raw=raw;l.opt=opt;l.format=changed?format.slice():previous.format;
       if(!changed) continue;
-      const line=document.createElement('div');
-      line.className='ink-line'; line.dataset.index=String(i);
-      if(prefix) {
-        line.classList.add('ink-block-'+prefix.kind);
-        if(prefix.kind==='heading') line.style.setProperty('--heading-scale',String(scale));
-        if(prefix.kind==='list') line.style.setProperty('--marker-width',prefix.source.length+'ch');
-      }
-      const mark=prefix?.kind==='heading'?prefix.source.length:0;
-      for(let j=0;j<raw.length;) {
-        const start=j++,mask=format[start],hidden=start<mark;
-        while(j<raw.length&&format[j]===mask&&(j<mark)===hidden) j++;
-        const segment=document.createElement('span');
-        styleSpan(segment,mask);
-        if(hidden) segment.className='ink-heading-marker';
-        const value=raw.slice(start,j);
-        if(worn&&!hidden)pressRange(segment,l.start+start,l.start+j,l);
-        else if(!hidden)flatRun(segment,value);
-        else segment.textContent=value;
-        line.append(segment);
-      }
-      if(!raw) line.append(document.createElement('br'));
+      const line=renderLine(l,i,worn);
       if(existing) {curvedLines.delete(existing);existing.replaceWith(line);} else node.append(line);
     }
     while(node.children.length>lines.length) {curvedLines.delete(node.lastElementChild);node.lastElementChild.remove();}
@@ -326,7 +353,7 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     viewport={width,height,inset};
     node.style.paddingTop=inset+'px';
     node.style.paddingBottom=(bottom()?4:28)+'px';
-    node.style.setProperty('--ink-margins',settings.wideMargins===false?'46px':'76px');
+    node.toggleAttribute('data-narrow-margins', settings.wideMargins === false);
     return result;
   }
   function afterReflow({resized,insetDelta,offset},layoutChanged=false) {
@@ -409,6 +436,10 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
       }
     }
     if(settings.paperMotion==='roll') {
+      if (!sealFooter.hidden) {
+        const top=sealFooter.offsetTop-offset;
+        if (top<projection.bend && top+sealFooter.offsetHeight>-projection.bend) setTransform(sealFooter,top,sealFooter.offsetHeight);
+      }
       let lo=0,hi=node.children.length;
       while(lo<hi) {
         const i=(lo+hi)>>1, p=node.children[i];
@@ -503,9 +534,12 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     const c=cursor(selection[1],flat),v=scroller.getBoundingClientRect();
     if(!c) return null;
     const h=scroller.clientHeight, caretBottom=c.bottom-v.top, top=c.top-v.top;
+    const seal = !flat && sealFooter.firstElementChild?.getBoundingClientRect();
+    const sealBottom = seal && seal.top < v.bottom && seal.bottom > v.top ? Math.min(h, seal.bottom - v.top) : null;
     return {x:c.left-v.left, y:caretBottom, caretX:c.left-v.left, caretY:top, caretBottom, lineTop:top,
       lineHeight:c.height, scrollOffset:scroller.scrollTop, hasText:!!text, visible:caretBottom>=0&&caretBottom<=h+4,
       startPosition:bottom()?'bottom':'top',
+      sealBottom,
       followingTextBottom:!bottom()&&(selection[1]<text.length||caretBottom>h)?Math.min(h,(node.lastElementChild?.getBoundingClientRect().bottom??c.bottom)-v.top):null};
   }
   // Remove live wear before cloning/restoring a rolled row. Text and
@@ -653,8 +687,9 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     }
     publish();
   }
-  function commit(animate=false,oldTop=scroller.scrollTop) {
-    render();follow(animate,oldTop);updateFormat();
+  function commit(animate=false,oldTop=scroller.scrollTop,forceRender=false) {
+    if (page.seal && !hasLetterText(text)) displaySeal(null);
+    render(forceRender);follow(animate,oldTop);updateFormat();
     onChange(snapshot());
   }
   function replaceRange(a,b,value,m=typing,withStyle=null,newEndings=null) {
@@ -703,6 +738,7 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     if(!changes) return;
     to.push(checkpoint());latest=null;
     ({text,style,endings,selection,typing,typingOverride}=changes);
+    if (changes.sealRevision === sealRevision && changes.seal !== page.seal) displaySeal(changes.seal);
     commit();
   }
   function toggleStyle(flag) {
@@ -880,14 +916,11 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     const {selection: original, caret, offset} = compositionSnapshot;
     selection=original;compositionSnapshot=null;
     const [a,b]=ordered();
-    if(value) {
-      // Commit only the established input text over the original logical
-      // selection. Never infer edits from provisional DOM or visual breaks.
-      history(null);replaceRange(a,b,normalizeNewline(value));
-    }
-    render(true);
-    if(!value){publish();return;}
-    follow(true);updateFormat();onChange(snapshot());onSound('key');
+    if(!value){render(true);publish();return;}
+    // Commit only the established input text over the original logical
+    // selection. Never infer edits from provisional DOM or visual breaks.
+    history(null);replaceRange(a,b,normalizeNewline(value));
+    commit(true,scroller.scrollTop,true);onSound('key');
     finishTypingStroke(value, a, a === b, caret, offset);
   }
   node.addEventListener('compositionstart',()=>{
@@ -914,9 +947,26 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
   function applySettings(value={}) {
     watchSelection();
     const layoutKeys=['paperStartPosition','paperMotion','fontSize','wideMargins','writingFont'];
-    const changed=layoutKeys.some(key=>settings[key]!==value[key]);
-    settings={...value};styleWritingPreview(node,settings);styleWritingPreview(placeholder,settings);const layout=reflow();render();
+    const next={...defaults,...value};
+    const changed=layoutKeys.some(key=>settings[key]!==next[key]);
+    settings=next;styleWritingPreview(node,settings);styleWritingPreview(placeholder,settings);const layout=reflow();render();
     afterReflow(layout,changed);
+  }
+  function displaySeal(seal, reveal=false) {
+    if (seal) page.seal=seal; else delete page.seal;
+    node.classList.toggle('ink-editor-sealed',Boolean(seal));
+    sealFooter.hidden=!seal;
+    sealFooter.replaceChildren(...(seal?[drawSeal(seal)]:[]));
+    if (reveal && seal) {
+      cancelFeed();
+      scroller.scrollTop=Math.max(0, sealFooter.offsetTop + sealFooter.offsetHeight - scroller.clientHeight);
+    }
+    scheduleMove();
+  }
+  function setSeal(value, reveal=false) {
+    sealRevision++;
+    latest=null;
+    displaySeal(hasLetterText(text) ? normalizeSeal(value) : null, reveal);
   }
   function load(value) {
     cancelFeed();composing=false;compositionSnapshot=null;pendingNativeCommit=null;
@@ -924,6 +974,7 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     page={...value};
     const content=typeof value?.text==='string'?value.text:'';
     ({text,style,endings}=normalized(content,expandFormatting(content,value?.formatting)));
+    setSeal(page.seal);
     const counts=new Map();
     for(const end of endings.values()) counts.set(end.value,1+(counts.get(end.value)||0));
     preferredEnding=[...counts].sort((a,b)=>b[1]-a[1])[0]?.[0]??'\n';
@@ -933,7 +984,7 @@ export function mountEditor(surface, {onChange=()=>{}, onMove=()=>{}, onSound=()
     publish();updateFormat();
   }
   applySettings();load({text:''});
-  return {element:node,scroller,load,snapshot,applySettings,command,
+  return {element:node,scroller,load,snapshot,applySettings,command,setSeal,printContent,
     focus(){watchSelection();node.focus({preventScroll:true});if(!composing)writeSelection();},
     activeEmphasis:active,
     destroy(){inkWindows.clear();listener.abort();observer.disconnect();cancelFeed();cancelAnimationFrame(frame);clearTimeout(timer);scroller.remove();}};
