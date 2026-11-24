@@ -11,7 +11,7 @@
 🎥 Watch the macOS demo ↓
 <p align="center">
   <a href="https://youtu.be/oanl6tyIvMo">
-    <img src="screenshots/inkrail-light-mode.png" alt="Watch the Inkrail macOS demo" width="480">
+    <img src="screenshots/inkrail-light-mode.png" alt="Watch the Inkrail macOS demo" width="760">
   </a>
 </p>
 
@@ -20,27 +20,31 @@
 
 | Light mode | Night writing |
 | --- | --- |
-| ![Ivory paper with an embossed IR mark above the walnut carriage](screenshots/inkrail-light-mode.png) | ![A pool of warm light illuminates the current line on dark paper](screenshots/inkrail-night-mode.png) |
+| ![A welcome note on ivory paper, with a leafy sprig to the left of the sheet](screenshots/inkrail-light-mode.png) | ![The same note on dark paper, lit just above the walnut carriage](screenshots/inkrail-night-mode.png) |
 
-| Focus Mode | Paper embossings |
+| Night desk | Focus Mode |
 | --- | --- |
-| ![A wide sheet with the walnut carriage and the desk controls hidden](screenshots/inkrail-focus-mode.png) | ![Botanical, Monogram, Sunburst and Maker’s mark at 45% relief in day and night light](screenshots/inkrail-paper-embossings.png) |
+| ![Two bronze lamps flank the dark sheet on a walnut desk](screenshots/inkrail-night-desk.png) | ![A wider ivory sheet and walnut carriage with the desk objects and footer controls hidden](screenshots/inkrail-focus-mode.png) |
 
-| Paper margins | Machine styles |
+| Botanical margins | Paper embossings |
 | --- | --- |
-| ![Green sprigs and purple buds along both edges of the paper](screenshots/inkrail-paper-margins.png) | ![Twelve carriage finishes with Walnut selected](screenshots/inkrail-machine-customizations.png) |
-
-| Desk settings | Sound settings |
-| --- | --- |
-| ![The Walnut study preset with paired bronze lamps in the desk preview](screenshots/inkrail-desk-customizations.png) | ![Six typewriter sound presets with volume and preview controls](screenshots/inkrail-sound-customizations.png) |
-
-| Lighting settings | Storage options |
-| --- | --- |
-| ![Night writing preview with sliders for lamp intensity and warmth](screenshots/inkrail-light-customizations.png) | ![The letters folder with controls to change its location or show it in Finder](screenshots/inkrail-storage-options.png) |
+| ![Green sprigs and purple buds border both sides of the welcome note](screenshots/inkrail-paper-margin-options.png) | ![Botanical, Monogram, Sunburst and Maker’s mark at 45% relief in day and night light](screenshots/inkrail-paper-embossings.png) |
 
 | Seal options | Sealed letter |
 | --- | --- |
-| ![Seal letter dialog with a wax preview, inscription, shape and color choices](screenshots/inkrail-seal-options.png) | ![A red wax seal bearing the initials AV beneath the letter’s closing line](screenshots/inkrail-letter-with-seal-preview.png) |
+| ![The Seal letter dialog previews the initials AV in red wax over a sheet with botanical margins](screenshots/inkrail-seal-options.png) | ![A red AV seal sits below “Always yours.” on the finished letter](screenshots/inkrail-seal-preview.png) |
+
+| Machine styles | Maker’s mark |
+| --- | --- |
+| ![Twelve carriage finishes with Walnut selected](screenshots/inkrail-machine-customizations.png) | ![An embossed IR mark in the upper corner of a letter framed by two desk lamps](screenshots/inkrail-makers-mark.png) |
+
+| Desk settings | Lighting settings |
+| --- | --- |
+| ![The Walnut study preset with paired bronze lamps in the desk preview](screenshots/inkrail-desk-customizations.png) | ![Night writing preview with sliders for lamp intensity and warmth](screenshots/inkrail-light-customizations.png) |
+
+| Sound settings | Storage options |
+| --- | --- |
+| ![Six typewriter sound presets with volume and preview controls](screenshots/inkrail-sound-customizations.png) | ![The letters folder with controls to change its location or show it in Finder](screenshots/inkrail-storage-options.png) |
 
 </details>
 

@@ -4,18 +4,20 @@
 
   const MEDIA = 'https://raw.githubusercontent.com/Aaryanverma/inkrail/main/screenshots/';
   const images = {
-    day: { file: 'inkrail-light-mode.png', alt: 'A welcome note on ivory paper with an embossed IR mark and a walnut typewriter carriage', heroCaption: 'A page that feels like yours.', galleryCaption: 'A welcome note on ivory paper.' },
-    night: { file: 'inkrail-night-mode.png', alt: 'Warm light falls across the welcome note and carriage on a dark sheet', heroCaption: 'A gentler way to write after dark.', galleryCaption: 'Warm light follows the writing line.' },
-    focus: { file: 'inkrail-focus-mode.png', alt: 'A wide ivory sheet in Focus Mode with a welcome note above the carriage', heroCaption: 'Nothing between you and the words.', galleryCaption: 'More room for the writing line.' },
+    day: { file: 'inkrail-light-mode.png', alt: 'A leafy sprig sits beside an ivory sheet with a two-line welcome note above the walnut carriage', heroCaption: 'A welcome note on ivory paper.', galleryCaption: 'A sprig beside the page in daylight.' },
+    night: { file: 'inkrail-night-mode.png', alt: 'A pool of warm light illuminates the welcome note just above the carriage on a dark sheet', heroCaption: 'A pool of light around the words.', galleryCaption: 'Warm light follows the writing line.' },
+    nightDesk: { file: 'inkrail-night-desk.png', alt: 'Two bronze lamps cast amber light on a walnut desk on either side of a dark sheet', galleryCaption: 'Paired bronze lamps on the walnut desk.' },
+    focus: { file: 'inkrail-focus-mode.png', alt: 'A wide ivory sheet fills the desk in Focus Mode, with a welcome note above the walnut carriage and the footer controls hidden', heroCaption: 'A wider sheet in Focus Mode.', galleryCaption: 'A wider page with the desk controls tucked away.' },
     embossings: { file: 'inkrail-paper-embossings.png', alt: 'Botanical, Monogram, Sunburst, and Maker’s mark impressions compared on light and dark paper at 45% relief', galleryCaption: 'Four embossings in day and night light.' },
-    margins: { file: 'inkrail-paper-margins.png', alt: 'Leafy vines and purple flowers border the sides of a welcome note', galleryCaption: 'A floral border along the margins.' },
+    mark: { file: 'inkrail-makers-mark.png', alt: 'The initials IR are pressed into the upper right corner of a letter above a pale carriage', galleryCaption: 'The maker’s mark pressed into the paper.' },
+    margins: { file: 'inkrail-paper-margin-options.png', alt: 'Green sprigs and purple buds line both edges of the ivory sheet around the welcome note', galleryCaption: 'Botanical margins frame the page.' },
     machine: { file: 'inkrail-machine-customizations.png', alt: 'Twelve typewriter carriages in the Machine tab, with Walnut selected', galleryCaption: 'Walnut is one of twelve carriage styles.' },
     desk: { file: 'inkrail-desk-customizations.png', alt: 'The Desk tab previews paired bronze lamps on a walnut desk beside the sheet', galleryCaption: 'A walnut writing desk with paired bronze lamps.' },
     sound: { file: 'inkrail-sound-customizations.png', alt: 'The Sound tab shows six typewriter sound profiles, a volume slider, and a preview button', galleryCaption: 'Choose a typewriter sound and preview its volume.' },
     light: { file: 'inkrail-light-customizations.png', alt: 'The Light tab shows a night writing preview above the lamp intensity and warmth sliders', galleryCaption: 'Adjust the intensity and warmth of the lamp.' },
     storage: { file: 'inkrail-storage-options.png', alt: 'The Storage tab shows the letters folder with Change Location and Show in Finder controls', galleryCaption: 'Choose where the letter library lives.' },
-    seal: { file: 'inkrail-seal-options.png', alt: 'The Seal letter dialog previews an AV wax seal alongside inscription, shape, and color controls', galleryCaption: 'Choose the inscription, shape, and wax color.' },
-    letter: { file: 'inkrail-letter-with-seal-preview.png', alt: 'A finished letter ends with a red AV wax seal beneath the signature', galleryCaption: 'A wax seal beneath the last line.' }
+    seal: { file: 'inkrail-seal-options.png', alt: 'The Seal letter dialog previews red wax stamped AV over a sheet with botanical margins', galleryCaption: 'Choose the inscription, shape, and wax color.' },
+    letter: { file: 'inkrail-seal-preview.png', alt: 'A red AV wax seal sits beneath the closing words “Always yours.” on a letter at the writing desk', galleryCaption: 'The finished letter with its wax seal.' }
   };
 
   const heroImage = document.getElementById('hero-image');
