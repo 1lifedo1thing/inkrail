@@ -2,7 +2,8 @@ import Foundation
 
 /// The importer and exporter share the editable range of each Markdown line.
 /// Fenced/indented examples, block markers and the original newline stay literal.
-func forEachMarkdownLine(in source: NSString, _ visit: (NSRange, NSRange) -> Void) {
+@discardableResult
+func forEachMarkdownLine(in source: NSString, _ visit: (NSRange, NSRange) -> Void) -> MarkdownFence? {
     var start = 0
     var fence: MarkdownFence?
     while start < source.length {
@@ -24,13 +25,48 @@ func forEachMarkdownLine(in source: NSString, _ visit: (NSRange, NSRange) -> Voi
         visit(line, NSRange(location: first, length: contentsEnd - first))
         start = end
     }
+    return fence
+}
+
+extension MarkdownFence {
+    static func openAtEnd(of text: String) -> MarkdownFence? {
+        guard text.contains("```") || text.contains("~~~") else { return nil }
+        return forEachMarkdownLine(in: text as NSString) { _, _ in }
+    }
 }
 
 extension Page {
+    // Read only the complete footer written by Inkrail. Keep malformed or
+    // unfamiliar footer markup in the editable letter like any other HTML.
+    private static let sealFooter = try! NSRegularExpression(pattern:
+        #"(?:\r\n\r\n|\n\n|\A)(<p data-inkrail-seal="([a-z]+) ([a-z]+)"( data-inkrail-closed-fence)?>✦ ([^<>\r\n]+) ✦</p>)(?:\r?\n)?\z"#)
+    private static let footerFence = try! NSRegularExpression(pattern: #"(?:\r\n\r\n|\n\n)(`{3,}|~{3,})\z"#)
+
+    private static func splitSealFooter(_ markdown: String) -> (body: NSString, seal: LetterSeal?) {
+        let source = markdown as NSString
+        guard let match = sealFooter.firstMatch(in: markdown, range: NSRange(location: 0, length: source.length)),
+              let shape = SealShape(rawValue: source.substring(with: match.range(at: 2))),
+              let color = SealColor(rawValue: source.substring(with: match.range(at: 3))) else { return (source, nil) }
+        let closesFence = match.range(at: 4).location != NSNotFound
+        let inscription = source.substring(with: match.range(at: 5))
+            .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+        let seal = LetterSeal(text: inscription, shape: shape, color: color)
+        guard seal.markdownFooter(closesFence: closesFence) == source.substring(with: match.range(at: 1)) else { return (source, nil) }
+        var body = source.substring(to: match.range.location)
+        if closesFence {
+            let encoded = body as NSString
+            guard let closing = footerFence.firstMatch(in: body, range: NSRange(location: 0, length: encoded.length)) else { return (source, nil) }
+            body = encoded.substring(to: closing.range.location)
+            guard MarkdownFence.openAtEnd(of: body)?.marker == encoded.substring(with: closing.range(at: 1)) else { return (source, nil) }
+        } else if MarkdownFence.openAtEnd(of: body) != nil { return (source, nil) }
+        return (body as NSString, seal)
+    }
+
     /// Import the inline syntax Inkrail can edit. Other Markdown, including
     /// block markers, link destinations and fenced examples, stays in the text.
     public init(markdown: String) {
-        let source = markdown as NSString
+        let (source, seal) = Self.splitSealFooter(markdown)
         var output = ""
         var formatting: [TextFormatRun] = []
         var outputLength = 0
@@ -54,6 +90,10 @@ extension Page {
         }
 
         forEachMarkdownLine(in: source) { line, inline in
+            if source.range(of: "<p data-inkrail-seal=", options: .anchored, range: line).location != NSNotFound {
+                append(line)
+                return
+            }
             var boundaries: [(range: NSRange, style: TextEmphasis, delta: Int)] = []
             MarkdownShortcut.scan(in: source, range: inline.location..<NSMaxRange(inline), importing: true) { span in
                 var content = span.contentRange
@@ -81,7 +121,7 @@ extension Page {
             }
             append(NSRange(location: cursor, length: NSMaxRange(line) - cursor))
         }
-        self.init(text: output, formatting: formatting)
+        self.init(text: output, formatting: formatting, seal: seal)
     }
 
     private static let inlineFlags: [TextEmphasis] = [.bold, .italic, .underline, .strikethrough, .code]

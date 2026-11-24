@@ -2,6 +2,13 @@ import XCTest
 @testable import InkrailCore
 
 final class LampAppearanceTests: XCTestCase {
+    func testNightWritingStartsOffWithDefaultIntensityAndWarmth() {
+        let preferences = WritingPreferences()
+        XCTAssertFalse(preferences.nightMode)
+        XCTAssertEqual(preferences.lampIntensity, 0.85)
+        XCTAssertEqual(preferences.lampWarmth, 0.55)
+    }
+
     func testCoolEndpointIsNotYellow() {
         let light = LampAppearance(warmth: 0, intensity: 0.82).lightRGB
         XCTAssertEqual(light, LampRGB(red: 0.92, green: 0.96, blue: 1.0))
@@ -69,8 +76,8 @@ final class LampAppearanceTests: XCTestCase {
         XCTAssertEqual(LampAppearance(warmth: 3, intensity: 3).intensity, 1)
         for value in [Double.nan, .infinity, -.infinity] {
             let lamp = LampAppearance(warmth: value, intensity: value)
-            XCTAssertEqual(lamp.warmth, 0.65)
-            XCTAssertEqual(lamp.intensity, 0.82)
+            XCTAssertEqual(lamp.warmth, 0.55)
+            XCTAssertEqual(lamp.intensity, 0.85)
         }
     }
 

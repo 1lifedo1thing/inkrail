@@ -1,4 +1,6 @@
 // Inkrail's interchange uses JavaScript UTF-16 offsets, the same units as NSTextStorage.
+import {hasLetterText,normalizeSeal} from './seal.js';
+
 export const emphasis = Object.freeze({bold:1, italic:2, underline:4, strikethrough:8, code:16});
 const tags = Object.freeze({strong:1, em:2, u:4, del:8});
 const newline = /\r\n|[\n\r\u0085\u2028\u2029]/g;
@@ -33,7 +35,14 @@ export function blockPrefix(text) {
   if (!m) return null;
   return {kind:m[1][0]==='#'?'heading':m[1]==='>'?'quote':'list', level:m[1].length, source:m[0]};
 }
+function openFenceAtEnd(text) {
+  return text.includes('```') || text.includes('~~~') ? scanMarkdownLines(text).fence : '';
+}
+
 export function markdownLines(text) {
+  return scanMarkdownLines(text).lines;
+}
+function scanMarkdownLines(text) {
   let fence='', start=0, match, lines=[];
   const breaks = new RegExp(newline.source,'g');
   const line=(end,next) => {
@@ -53,7 +62,7 @@ export function markdownLines(text) {
   };
   while((match=breaks.exec(text))) line(match.index,breaks.lastIndex);
   line(text.length,text.length);
-  return lines;
+  return {lines,fence};
 }
 function edge(s,i) {
   if(i<0||i>=s.length) return 0;
@@ -131,7 +140,25 @@ export function shortcutAt(text,caret) {
 function unescapeStyled(source) {
   return source.replace(/\\([\p{P}\p{S}])/gu,'$1').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&amp;','&');
 }
-export function importMarkdown(markdown) {
+function splitSealFooter(markdown) {
+  const footer = /(?:\r\n\r\n|\n\n|^)(<p data-inkrail-seal="([a-z]+) ([a-z]+)"( data-inkrail-closed-fence)?>✦ ([^<>\r\n]+) ✦<\/p>)(?:\r?\n)?$/u.exec(markdown);
+  if (!footer) return [markdown];
+  const [, markup, shape, color, closesFence, inscription] = footer;
+  const text = inscription.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+  const seal = normalizeSeal({text, shape, color});
+  if (!seal || markdownFooter(seal, closesFence) !== markup) return [markdown];
+  let body = markdown.slice(0, footer.index);
+  if (closesFence) {
+    const closing = /(?:\r\n\r\n|\n\n)(`{3,}|~{3,})$/u.exec(body);
+    if (!closing) return [markdown];
+    body = body.slice(0, closing.index);
+    if (openFenceAtEnd(body) !== closing[1]) return [markdown];
+  } else if (openFenceAtEnd(body)) return [markdown];
+  return [body, seal];
+}
+
+export function importMarkdown(source) {
+  const [markdown, seal] = splitSealFooter(source);
   let text='';
   const formatting=[];
   function append(content,m=0) {
@@ -143,6 +170,10 @@ export function importMarkdown(markdown) {
     text+=content;
   }
   for(const line of markdownLines(markdown)) {
+    if (markdown.startsWith('<p data-inkrail-seal=', line.start)) {
+      append(markdown.slice(line.start, line.next));
+      continue;
+    }
     const boundaries=[];
     for(const span of scan(markdown,line.inline,line.end,true)) {
       let {start,bodyStart,bodyEnd,end,emphasis:m}=span;
@@ -163,7 +194,7 @@ export function importMarkdown(markdown) {
     }
     append(markdown.slice(cursor,line.next));
   }
-  return {text,formatting};
+  return seal && hasLetterText(text) ? {text,formatting,seal} : {text,formatting};
 }
 function markdownSpan(text,start,end,m) {
   const raw=text.slice(start,end), trimmed=raw.trim();
@@ -182,7 +213,27 @@ function markdownSpan(text,start,end,m) {
   return raw.slice(0,raw.indexOf(trimmed))+(marker??names.map(x=>'<'+x+'>').join(''))+content+
     (marker??names.reverse().map(x=>'</'+x+'>').join(''))+raw.slice(raw.indexOf(trimmed)+trimmed.length);
 }
-export function exportMarkdown({text='',formatting}) {
+function markdownFooter(seal, closesFence) {
+  const inscription = seal.text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const attribute = closesFence ? ' data-inkrail-closed-fence' : '';
+  return `<p data-inkrail-seal="${seal.shape} ${seal.color}"${attribute}>✦ ${inscription} ✦</p>`;
+}
+
+export function exportPlainText(page) {
+  const seal = normalizeSeal(page.seal);
+  const text = page.text ?? '';
+  return seal && hasLetterText(text) ? text + `\n\n✦ ${seal.text} ✦` : text;
+}
+
+export function exportMarkdown(page) {
+  const body = markdownBody(page), seal = normalizeSeal(page.seal);
+  if (!seal || !hasLetterText(page.text)) return body;
+  const fence = openFenceAtEnd(body);
+  const closing = fence ? '\n\n' + fence : '';
+  return body + closing + (body ? '\n\n' : '') + markdownFooter(seal, fence);
+}
+
+function markdownBody({text='',formatting}) {
   const runs=validateFormatting(text,formatting);
   if(!runs.length) return text;
   let out='',i=0;

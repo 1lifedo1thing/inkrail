@@ -48,22 +48,23 @@ enum NightLampCheck {
     static func main() throws {
         let output = URL(fileURLWithPath: CommandLine.arguments[1])
         let count = try checkLampProfile()
-        var p = WritingPreferences()
+        let defaults = WritingPreferences.defaults
+        var p = defaults
         p.nightMode = true
         p.mechanismStyle = .midnight
         var renders = 0
-        for warmth in [0.0, 0.65, 1.0] {
+        for warmth in [0.0, defaults.lampWarmth, 1.0] {
             p.lampWarmth = warmth
             try render(LampScene(preferences: p), name: "warmth-\(Int(warmth * 100))", to: output)
             renders += 1
         }
-        p.lampWarmth = 0.65
+        p.lampWarmth = defaults.lampWarmth
         p.lampIntensity = 0.25
         try render(LampScene(preferences: p), name: "intensity-25", to: output)
         p.lampIntensity = 1
         try render(LampScene(preferences: p), name: "intensity-100", to: output)
         renders += 2
-        p.lampIntensity = 0.82
+        p.lampIntensity = defaults.lampIntensity
         for (name, x, y) in [("top-left", 64.0, 150.0), ("bottom-right", 656.0, 550.0)] {
             try render(LampScene(preferences: p, headX: x, railY: y), name: name, to: output)
             renders += 1
@@ -78,7 +79,7 @@ enum NightLampCheck {
         let stylePreview = VStack(spacing: 12) {
             ForEach(MechanismStyle.allCases, id: \.self) { style in
                 HStack(spacing: 12) {
-                    ForEach([0.0, 0.65, 1.0], id: \.self) { warmth in
+                    ForEach([0.0, defaults.lampWarmth, 1.0], id: \.self) { warmth in
                         NightLampPreview(preferences: preferences(style: style, warmth: warmth))
                             .frame(width: 340)
                     }

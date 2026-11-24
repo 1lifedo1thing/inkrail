@@ -85,7 +85,7 @@ private struct FedLampScene: View {
                 .foregroundColor(preferences.ribbon.color)
                 .lineSpacing(7)
                 .padding(.leading, 76).padding(.top, 220)
-            NightLighting(size: size, headX: headX, railY: railY, preferences: preferences)
+            NightLighting(size: size, headX: headX, railY: railY, preferences: preferences, feedOffset: 180)
             RailView(finish: preferences.effectiveRailFinish, style: preferences.mechanismStyle)
                 .frame(width: size.width + 4).position(x: size.width / 2, y: railY)
                 .brightness(-0.22)
@@ -142,9 +142,11 @@ enum CustomizationCheck {
         try checkFontResolution()
         try checkPaperResource()
         try checkPaperRendering()
+        try checkDefaultEmbossingVisibility()
         try checkPaperFeedRendering()
         try checkPaperRollRendering()
         var preferences = WritingPreferences()
+        preferences.paperMotion = .sheet
         preferences.paperTexture = .cotton
         preferences.paperEmbossing = .botanical
         preferences.embossingDepth = 0.7
@@ -208,14 +210,25 @@ enum CustomizationCheck {
         expected.lampWarmth = 0.91
         let migrated = try decode(legacy)
         try require(migrated == expected, "Legacy values changed during customization migration")
-        try require(migrated.paperTexture == .classic && migrated.textureStrength == 0.55
-                    && migrated.paperEmbossing == .none && migrated.embossingDepth == 0.45
+        try require(migrated.paperTexture == .classic && migrated.textureStrength == 0.70
+                    && migrated.paperEmbossing == .makerMark && migrated.embossingDepth == 0.70
                     && migrated.writingFont == .courier && migrated.typewriterSound == .classic,
-                    "Legacy records no longer retain the original surface, typeface and sounds")
-        passed("Literal legacy preferences preserve every saved field and retain original defaults")
+                    "Missing surface, typeface and sound settings should use their defaults")
+        passed("Literal legacy preferences preserve every saved field and apply defaults for missing fields")
     }
 
     static func checkNewPreferenceValues() throws {
+        let defaults = WritingPreferences()
+        try require(defaults.paperMotion == .roll && defaults.paperStartPosition == .bottom
+                    && defaults.paperTexture == .classic && defaults.textureStrength == 0.70
+                    && defaults.paperEmbossing == .makerMark && defaults.embossingDepth == 0.70,
+                    "Incorrect default paper layout or surface")
+        try require(defaults.mechanismStyle == .walnut && defaults.matchRailToStyle
+                    && defaults.effectiveRailFinish == .brass && defaults.soundVolume == 0.55
+                    && !defaults.nightMode && defaults.lampIntensity == 0.85 && defaults.lampWarmth == 0.55,
+                    "Incorrect default mechanism, volume or lighting")
+        passed("Fresh paper, mechanism, sound and light settings")
+
         for texture in PaperTexture.allCases {
             for embossing in PaperEmbossing.allCases {
                 for font in WritingFont.allCases {
@@ -240,7 +253,7 @@ enum CustomizationCheck {
          "typewriterSound":"future","textureStrength":0.77,"embossingDepth":0.27,
          "paper":"white","lampWarmth":0.12,"soundVolume":0}
         """)
-        try require(future.paperTexture == .classic && future.paperEmbossing == .none
+        try require(future.paperTexture == .classic && future.paperEmbossing == .makerMark
                     && future.writingFont == .courier && future.typewriterSound == .classic
                     && future.textureStrength == 0.77 && future.embossingDepth == 0.27
                     && future.paper == .white && future.lampWarmth == 0.12 && future.soundVolume == 0,
@@ -252,7 +265,7 @@ enum CustomizationCheck {
             p.textureStrength = value
             p.embossingDepth = value
             p.clamp()
-            try require(p.textureStrength == 0.55 && p.embossingDepth == 0.45, "Nonfinite detail values lack defaults")
+            try require(p.textureStrength == 0.70 && p.embossingDepth == 0.70, "Nonfinite detail values lack defaults")
         }
         let combinationCount = PaperTexture.allCases.count * PaperEmbossing.allCases.count
             * WritingFont.allCases.count * TypewriterSound.allCases.count
@@ -289,7 +302,9 @@ enum CustomizationCheck {
 
     static func checkPaperRendering() throws {
         var p = WritingPreferences()
+        p.paperMotion = .sheet
         p.paperTexture = .smooth
+        p.paperEmbossing = .none
         let plain = try renderPaper(p, name: "surface-smooth")
         var activeTextures: [PaperTexture: CGImage] = [:]
         for texture in PaperTexture.allCases {
@@ -314,7 +329,7 @@ enum CustomizationCheck {
 
         p.paperTexture = .smooth
         var reliefImages: [PaperEmbossing: CGImage] = [:]
-        for mark in [PaperEmbossing.botanical, .monogram, .sunburst] {
+        for mark in PaperEmbossing.allCases where mark != .none {
             p.paperEmbossing = mark
             p.embossingDepth = 0
             let zero = try renderPaper(p, name: "emboss-\(mark.rawValue)-zero")
@@ -331,11 +346,45 @@ enum CustomizationCheck {
             try require(delta.changed > 40 && delta.outside == 0,
                         "\(mark.label) must alter only the upper-right stamp area (inside \(delta.changed), outside \(delta.outside))")
         }
-        passed("All three embossed marks create local relief without altering the rest of the sheet")
+        passed("All embossed marks create local relief without altering the rest of the sheet")
+    }
+
+    static func checkDefaultEmbossingVisibility() throws {
+        let size = CGSize(width: 560, height: 420)
+        // Pixel coordinates for the upper-right corner in the 2x render.
+        let stampBounds = CGRect(x: 425 * 2, y: 15 * 2, width: 120 * 2, height: 130 * 2)
+        var preferences = WritingPreferences()
+        preferences.paperMotion = .sheet
+        for night in [false, true] {
+            preferences.nightMode = night
+            let appearance = night ? "night" : "day"
+            func sheet(_ mark: PaperEmbossing) throws -> CGImage {
+                var paper = preferences
+                paper.paperEmbossing = mark
+                let view = ZStack {
+                    LitPaperSurface(size: size, headX: 76, railY: 332, preferences: paper)
+                    if night {
+                        NightLighting(size: size, headX: 76, railY: 332, preferences: paper)
+                    }
+                }.frame(width: size.width, height: size.height)
+                return try render(view, name: "emboss-default-\(appearance)-\(mark.rawValue)")
+            }
+            let plain = try sheet(.none)
+            for mark in PaperEmbossing.allCases where mark != .none {
+                // Sample one pixel per point. A few antialiased edges are insufficient
+                // to make the motif legible at the normal desk zoom.
+                let stamp = try sheet(mark)
+                let delta = try difference(plain, stamp, region: stampBounds, minimumDelta: (night ? 9.0 : 24.0) / 255)
+                try require(delta.changed > 120, "\(mark.label) relief is too faint at the default depth in \(appearance) light")
+                try require(delta.outside == 0, "\(mark.label) changed the surrounding paper in \(appearance) light")
+            }
+        }
+        passed("All four embossings have visible relief on textured paper by day and by night at the default depth")
     }
 
     static func checkPaperFeedRendering() throws {
         var p = WritingPreferences()
+        p.paperMotion = .sheet
         p.paperTexture = .cotton
         p.textureStrength = 0.8
         p.embossingDepth = 0.75
@@ -382,6 +431,7 @@ enum CustomizationCheck {
         var p = WritingPreferences()
         p.paperMotion = .roll
         p.paperTexture = .smooth
+        p.paperEmbossing = .none
         let initial = try renderPaper(p, name: "roll-smooth-start")
         let fed = try renderPaper(p, feedOffset: 180, name: "roll-smooth-fed")
         try require(try difference(initial, fed).changed == 0,
@@ -477,7 +527,8 @@ enum CustomizationCheck {
     }
 
     /// Compare sampled output pixels, not a duplicate of the texture algorithm.
-    static func difference(_ lhs: CGImage, _ rhs: CGImage, region: CGRect? = nil) throws -> (changed: Int, outside: Int) {
+    static func difference(_ lhs: CGImage, _ rhs: CGImage, region: CGRect? = nil,
+                           minimumDelta: CGFloat = 2.1 / 255) throws -> (changed: Int, outside: Int) {
         try require(lhs.width == rhs.width && lhs.height == rhs.height, "Render dimensions changed")
         let a = NSBitmapImageRep(cgImage: lhs)
         let b = NSBitmapImageRep(cgImage: rhs)
@@ -497,7 +548,7 @@ enum CustomizationCheck {
                                     abs(c.greenComponent - d.greenComponent)),
                                 max(abs(c.blueComponent - d.blueComponent),
                                     abs(c.alphaComponent - d.alphaComponent)))
-                if delta > 2.1 / 255 {
+                if delta > minimumDelta {
                     if let region, !region.contains(CGPoint(x: x, y: y)) { outside += 1 }
                     else { changed += 1 }
                 }

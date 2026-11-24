@@ -18,6 +18,7 @@ internal sealed class WriterWindow : Form
     private readonly System.Windows.Forms.Timer closeTimer = new() { Interval = 12000 };
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private bool ready, closePending, canClose;
+    private bool pdfExportActive, closeAfterPdfExport;
     public int ExitCode { get; private set; }
 
     public WriterWindow(Library library, string cache, int? debugPort)
@@ -134,6 +135,7 @@ internal sealed class WriterWindow : Form
         object? value = null;
         string? error = null;
         bool finishClose = false;
+        bool resumeClose = false;
         try
         {
             switch (request.Op)
@@ -141,6 +143,20 @@ internal sealed class WriterWindow : Form
                 case "boot": value = library.Boot(); break;
                 case "import": value = FileDialogs.Import(this); break;
                 case "export": value = FileDialogs.Export(this, request.Args); break;
+                case "beginPdfExport":
+                    bool granted = !closePending && !canClose && !pdfExportActive;
+                    if (granted) pdfExportActive = true;
+                    value = granted;
+                    break;
+                case "exportPDF":
+                    if (!pdfExportActive) throw new InvalidOperationException("PDF export has not started.");
+                    value = await FileDialogs.ExportPdf(this, browser.CoreWebView2, request.Args);
+                    break;
+                case "endPdfExport":
+                    resumeClose = closeAfterPdfExport && request.Args.GetBoolean();
+                    pdfExportActive = false;
+                    closeAfterPdfExport = false;
+                    break;
                 case "changeStorage": value = FileDialogs.ChangeLocation(this, library); break;
                 case "revealStorage":
                     if (!Directory.Exists(library.Location)) throw new DirectoryNotFoundException(library.Location);
@@ -160,14 +176,21 @@ internal sealed class WriterWindow : Form
         catch (Exception) when (IsDisposed || Disposing) { return; }
         catch (Exception ex)
         {
-            // Preserve the window if the renderer fails during a save or close.
+            // If the renderer never receives its reply it cannot send endPdfExport.
+            if (request.Op == "exportPDF" || (request.Op == "beginPdfExport" && value is true))
+            {
+                pdfExportActive = false;
+                closeAfterPdfExport = false;
+            }
             MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
         }
         if (finishClose && closePending)
         {
             canClose = true;
             Close();
         }
+        else if (resumeClose) Close(); // Re-enter the normal save-before-close path.
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -175,6 +198,13 @@ internal sealed class WriterWindow : Form
         base.OnFormClosing(e);
         if (canClose || !ready) return;
         e.Cancel = true;
+        // Preparing the print layout, choosing a destination and writing the PDF
+        // all precede the close-time autosave and its watchdog.
+        if (pdfExportActive)
+        {
+            closeAfterPdfExport = true;
+            return;
+        }
         if (closePending) return;
         closePending = true;
         browser.Enabled = false;

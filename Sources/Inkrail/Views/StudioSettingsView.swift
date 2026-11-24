@@ -70,7 +70,7 @@ struct StudioSettingsView: View {
             Spacer()
             Button("Done", action: close)
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(SettingsDoneButtonStyle())
+                .buttonStyle(DeskPrimaryButtonStyle())
                 .controlSize(.regular)
         }
         .padding(.horizontal, 30).padding(.top, 26).padding(.bottom, 24)
@@ -124,13 +124,13 @@ struct StudioSettingsView: View {
                     control("Texture detail", value: $preferences.textureStrength, range: 0...1, percent: true)
                 }
                 toggle("Curved upper corners", isOn: $preferences.curvedPaper)
+                menu("Margin style", selection: $preferences.marginStyle, cases: PaperMarginStyle.allCases, label: { $0.label })
             }
             card("Embossing", subtitle: "A quiet impression pressed into the paper.") {
                 menu("Mark", selection: $preferences.paperEmbossing, cases: PaperEmbossing.allCases, label: { $0.label })
                 if preferences.paperEmbossing != .none {
                     control("Relief", value: $preferences.embossingDepth, range: 0...1, percent: true)
                 }
-                toggle("Botanical margins", isOn: $preferences.garden)
             }
         }
     }
@@ -314,7 +314,7 @@ struct StudioSettingsView: View {
                     .accessibilityLabel("Letters folder: \(storagePath)")
                 HStack(spacing: 14) {
                     Button("Change Location…", action: changeStorageLocation)
-                        .buttonStyle(SettingsDoneButtonStyle())
+                        .buttonStyle(DeskPrimaryButtonStyle())
                         .disabled(!storageAvailable)
                     Button("Show in Finder", action: showStorageFolder)
                         .buttonStyle(.plain)
@@ -421,36 +421,6 @@ struct StudioSettingsView: View {
             Text(percent ? "\(Int(value.wrappedValue * 100))%" : "\(Int(value.wrappedValue))\(suffix)")
                 .font(.system(size: 11)).monospacedDigit().frame(width: 38, alignment: .trailing)
         }
-    }
-}
-
-/// Explicit artwork keeps the default-action button olive even when AppKit
-/// chooses the system accent for a native default bezel. SwiftUI retains the
-/// button action, Return shortcut and accessibility semantics.
-private struct SettingsDoneButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var enabled
-    @Environment(\.isFocused) private var focused
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.white)
-            .padding(.horizontal, 11).padding(.vertical, 4)
-            .background {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(DeskPalette.accent)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(LinearGradient(colors: [.black.opacity(0.04), .black.opacity(0.24)],
-                                                 startPoint: .top, endPoint: .bottom))
-                    }
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(DeskPalette.ink.opacity(focused ? 0.75 : 0.25), lineWidth: focused ? 2 : 0.6)
-            }
-            .brightness(configuration.isPressed ? -0.12 : 0)
-            .opacity(enabled ? 1 : 0.45)
     }
 }
 

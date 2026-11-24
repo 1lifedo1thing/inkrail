@@ -20,9 +20,15 @@ $legacyLetter = @{
     privateTitle = 'Original title'; text = $legacyText
     formatting = @(@{location = 0; length = 6; emphasis = 1})
 }
+$savedDeskChoices = @{
+    paperMotion = 'sheet'; paperStartPosition = 'top'; textureStrength = 0.55
+    paperEmbossing = 'none'; embossingDepth = 0.45
+    mechanismStyle = 'classic'; matchRailToStyle = $false
+    soundVolume = 0.30; lampIntensity = 0.82; lampWarmth = 0.65
+}
 $legacySettings = @{
     libraryLocation = $library; selectedID = $id
-    preferences = @{nightMode = $true; soundEnabled = $false; typewriterSound = 'office'; wornInk = $false}
+    preferences = $savedDeskChoices + @{nightMode = $true; soundEnabled = $false; typewriterSound = 'office'; wornInk = $false}
 }
 [IO.File]::WriteAllText($letterPath, ($legacyLetter | ConvertTo-Json -Depth 5), $utf8)
 [IO.File]::WriteAllText($preferencesPath, ($legacySettings | ConvertTo-Json -Depth 5), $utf8)
@@ -30,6 +36,13 @@ $needle = 'Inkrail Windows smoke ' + [guid]::NewGuid().ToString('N')
 $script:proc = $null
 $script:socket = $null
 $script:seq = 0
+function Assert-Preferences($actual, [hashtable]$expected) {
+    foreach ($key in $expected.Keys) {
+        if ($actual.$key -ne $expected[$key]) {
+            throw "Expected $key to be '$($expected[$key])', got '$($actual.$key)'."
+        }
+    }
+}
 function Get-TestPort {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
     try { $listener.Start(); return $listener.LocalEndpoint.Port } finally { $listener.Stop() }
@@ -62,8 +75,8 @@ function Call-CDP([string]$method, $arguments) {
         }
     } finally { $ct.Dispose() }
 }
-function Eval-Desk([string]$expression) {
-    $result = Call-CDP 'Runtime.evaluate' @{expression=$expression;returnByValue=$true}
+function Eval-Desk([string]$expression, [switch]$AwaitPromise) {
+    $result = Call-CDP 'Runtime.evaluate' @{expression=$expression;returnByValue=$true;awaitPromise=$AwaitPromise.IsPresent}
     if ($result.exceptionDetails) {
         $details = $result.exceptionDetails
         $reason = $details.exception.description
@@ -120,13 +133,19 @@ function Start-Desk([string]$profileDirectory = $testProfile) {
     } while ((Get-Date) -lt $deadline)
     throw 'The window opened but the editor did not finish starting.'
 }
-function Close-Desk {
+function Request-DeskClose {
     $script:proc.Refresh()
     if (-not $script:proc.CloseMainWindow()) { throw 'The OS did not find the Inkrail test window.' }
+}
+function Wait-DeskExit {
     if (-not $script:proc.WaitForExit(12000)) { throw 'Inkrail did not finish saving and close in time.' }
     if ($script:proc.ExitCode -ne 0) { throw ('Inkrail exited with code ' + $script:proc.ExitCode) }
     $script:socket.Dispose(); $script:socket=$null
     $script:proc.Dispose(); $script:proc=$null
+}
+function Close-Desk {
+    Request-DeskClose
+    Wait-DeskExit
 }
 try {
     Start-Desk
@@ -160,6 +179,7 @@ try {
         throw 'The restored letter lost its title, original formatting, or last keystrokes.'
     }
     $saved = [IO.File]::ReadAllText($preferencesPath) | ConvertFrom-Json
+    Assert-Preferences $saved.preferences $savedDeskChoices
     if ($saved.libraryLocation -ne $library -or $saved.selectedID -ne $id -or $saved.preferences.nightMode -ne $false -or
         $saved.preferences.soundEnabled -ne $false -or $saved.preferences.typewriterSound -ne 'royal') {
         throw 'Settings or the selected custom-library letter were lost during the upgrade.'
@@ -168,19 +188,94 @@ try {
     Wait-Desk "document.querySelector('.ink-editor').textContent === '$legacyText$needle'"
     Wait-Desk "document.querySelector('.ink-editor .ink-bold')?.textContent === 'Styled'"
     Wait-Desk "document.querySelector('[data-action=night]').getAttribute('aria-pressed') === 'false'"
+
+    # Keep one letter in conflict while autosave writes a second letter and the selection.
+    $originalBytes = [IO.File]::ReadAllBytes($letterPath)
+    $external = [IO.File]::ReadAllText($letterPath) | ConvertFrom-Json
+    $external.text = 'Edited outside Inkrail'
+    [IO.File]::WriteAllText($letterPath, ($external | ConvertTo-Json -Depth 5), $utf8)
+    $null = Eval-Desk "const editor = document.querySelector('.ink-editor'); editor.focus(); getSelection().selectAllChildren(editor); true"
+    $null = Call-CDP 'Input.insertText' @{text='Pending local edit'}
+    Wait-Desk "document.querySelector('#notice[open]')?.textContent.includes('Renamed letter')"
+    Click-Desk '#notice-ok'
+    Click-Desk '[data-action=new]'
+    Wait-Desk "document.querySelector('.ink-editor').textContent === ''"
+    $null = Eval-Desk "document.querySelector('.ink-editor').focus(); true"
+    $null = Call-CDP 'Input.insertText' @{text='Independent letter'}
+    $deadline = (Get-Date).AddSeconds(10)
+    do {
+        $selected = ([IO.File]::ReadAllText($preferencesPath) | ConvertFrom-Json).selectedID
+        $otherPath = Join-Path $letters "$selected.json"
+        if ($selected -ne $id -and (Test-Path -LiteralPath $otherPath) -and
+            ([IO.File]::ReadAllText($otherPath) | ConvertFrom-Json).text -eq 'Independent letter') { break }
+        if ((Get-Date) -ge $deadline) { throw 'A conflict blocked autosave of another letter or its selection.' }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
+    if (([IO.File]::ReadAllText($letterPath) | ConvertFrom-Json).text -ne $external.text) {
+        throw 'Autosave overwrote a conflicting letter.'
+    }
+    [IO.File]::WriteAllBytes($letterPath, $originalBytes)
+    $null = Eval-Desk "window.dispatchEvent(new Event('inkrail-flush'))"
+    Wait-Desk "!document.querySelector('.s-dot.dirty')"
+    if (([IO.File]::ReadAllText($letterPath) | ConvertFrom-Json).text -ne 'Pending local edit') {
+        throw 'Autosave dropped the conflicted edit instead of retrying it.'
+    }
     Close-Desk
 
     $freshProfile = Join-Path $testProfile 'First launch'
     [IO.Directory]::CreateDirectory($freshProfile) | Out-Null
     Start-Desk $freshProfile
+
+    # Hold the actual export command before Save As. A failed preparation after
+    # an OS close request must return the writer to the desk with the error.
+    $null = Eval-Desk @'
+Object.defineProperty(document.fonts, 'ready', {
+    configurable: true,
+    get() {
+        return new Promise((_, reject) => {
+            window.failTestPrint = () => {
+                delete document.fonts.ready;
+                reject(new Error('PDF preparation failed in the smoke test.'));
+            };
+        });
+    }
+}); true
+'@
+    Click-Desk '[data-action=export]'
+    Click-Desk '[data-command=exportPDF]'
+    Wait-Desk "typeof window.failTestPrint === 'function'"
+    Request-DeskClose
+    # Wait for a round trip through the native UI thread after posting WM_CLOSE.
+    $bridge = "import(location.origin + '/bridge.js')"
+    $null = Eval-Desk "$bridge.then(({call}) => call('windowDirty', false))" -AwaitPromise
+    $null = Eval-Desk 'window.failTestPrint(); true'
+    Wait-Desk "document.querySelector('#notice').open && document.querySelector('#notice-text').textContent.includes('PDF preparation failed in the smoke test.') && !document.querySelector('#letter-print')"
+    Click-Desk '#notice-ok'
+
+    # Exercise the host's success path with a controlled completion. This keeps
+    # the test unattended and holds the export longer than the save watchdog.
+    $null = Eval-Desk "window.addEventListener('inkrail-close-request', () => { window.testCloseFlushStarted = true; }); true"
+    $began = Eval-Desk "$bridge.then(({call}) => call('beginPdfExport'))" -AwaitPromise
+    if (-not $began) { throw 'The writer could not start another PDF export after the failed preparation.' }
+    Request-DeskClose
+    if ($script:proc.WaitForExit(13000)) { throw 'Inkrail closed while a PDF export was still active.' }
+    if (Eval-Desk 'window.testCloseFlushStarted === true') { throw 'The close watchdog started before PDF completion.' }
     $null = Eval-Desk "document.querySelector('.ink-editor').focus(); true"
     $null = Call-CDP 'Input.insertText' @{text=$needle}
-    Close-Desk
+    $null = Eval-Desk "void $bridge.then(({call}) => call('endPdfExport', true)); true"
+    Wait-DeskExit
     $freshLetters = @(Get-ChildItem -LiteralPath (Join-Path $freshProfile 'Library\Letters') -Filter '*.json')
     if ($freshLetters.Count -ne 1) { throw 'Expected one letter in the new default library.' }
     $freshLetter = [IO.File]::ReadAllText($freshLetters[0].FullName) | ConvertFrom-Json
-    if (-not $freshLetter.text.Contains($needle)) { throw 'First launch did not save the writing.' }
-    Write-Output 'PASS: first launch, legacy custom library, preferences, formatting, rename, trash, restore, typing, close-time save, and reopen.'
+    if (-not $freshLetter.text.Contains($needle)) { throw 'The deferred close did not save the final edit.' }
+    $freshSettings = [IO.File]::ReadAllText((Join-Path $freshProfile 'preferences.json')) | ConvertFrom-Json
+    Assert-Preferences $freshSettings.preferences @{
+        paperMotion = 'roll'; paperStartPosition = 'bottom'; paperTexture = 'classic'; textureStrength = 0.70
+        paperEmbossing = 'makerMark'; embossingDepth = 0.70
+        mechanismStyle = 'walnut'; matchRailToStyle = $true
+        soundVolume = 0.55; nightMode = $false; lampIntensity = 0.85; lampWarmth = 0.55
+    }
+    Write-Output 'PASS: first launch, legacy library, preferences, formatting, rename, trash, restore, independent autosaves, PDF close handling, and reopen.'
     Write-Output ("Disposable profile (safe to remove after inspection): " + $testProfile)
 } finally {
     if ($script:socket) { $script:socket.Dispose() }

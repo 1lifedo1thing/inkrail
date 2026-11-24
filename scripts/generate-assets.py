@@ -36,8 +36,8 @@ paper.save(RES / "paper-grain.png", optimize=True)
 # Use the same reproducible audio generator as the standalone sound build.
 subprocess.run([sys.executable, str(ROOT / "scripts/generate-sound-styles.py")], check=True)
 
-# Procedural base icon for reference; the finished wordmark icon is maintained
-# separately in Sources/Inkrail/Resources/AppIcon.png.
+# Keep the original paper-and-carriage study for reference. generate-logo.py
+# builds the shipping icon and maker's mark from their own artwork.
 S = 1024
 icon = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 d = ImageDraw.Draw(icon)

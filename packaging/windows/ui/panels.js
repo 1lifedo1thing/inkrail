@@ -1,6 +1,8 @@
 import {canonicalSound, soundProfiles} from './sound-profiles.js';
+import {defaults} from './defaults.js';
 import {mountDeskPreview} from './desk.js';
 import {styleWritingPreview,inkImpression,styleInkStrike} from './editor.js';
+import {defaultSeal, drawSeal, limitSealText, normalizeSeal, sealColors, sealShapes, sealTextLimit} from './seal.js';
 
 // Settings and letter box. Persisted keys and enum identifiers match InkrailCore.
 const titled = values => values.map(([id,label,detail]) => ({id,label,detail}));
@@ -9,7 +11,8 @@ export const choices = Object.freeze({
   paperStartPosition: titled([['top','Top'],['bottom','Bottom']]),
   paperMotion: titled([['sheet','Sheet'],['roll','Paper roll']]),
   paperTexture: titled([['classic','Classic','The original fine grain'],['smooth','Smooth','A clean, even surface'],['laid','Laid','Fine lines in the paper'],['cotton','Cotton','Soft, irregular fibres']]),
-  paperEmbossing: titled([['none','None','Unmarked paper'],['botanical','Botanical','A quiet botanical impression'],['monogram','Monogram','A small Inkrail imprint'],['sunburst','Sunburst','A subtle radiating seal']]),
+  marginStyle: titled([['none','None'],['botanical','Botanical'],['ledger','Ledger'],['artDeco','Art Deco'],['celestial','Celestial']]),
+  paperEmbossing: titled([['none','None','Unmarked paper'],['botanical','Botanical','A quiet botanical impression'],['monogram','Monogram','A small Inkrail imprint'],['sunburst','Sunburst','A subtle radiating seal'],['makerMark','Maker’s mark','The carriage initials pressed into paper']]),
   capsule: titled([['porcelain','Porcelain','#e5e2d6'],['sage','Sage','#86977c'],['cobalt','Cobalt','#3d609c'],['terracotta','Terracotta','#ad6548'],['graphite','Graphite','#454c4a']]),
   rail: titled([['steel','Steel'],['brass','Brass'],['charcoal','Charcoal']]),
   ribbon: titled([['carbon','Carbon','#292b26'],['midnight','Midnight','#213d57'],['oxblood','Oxblood','#591f24']]),
@@ -19,19 +22,12 @@ export const choices = Object.freeze({
   typewriterSound: titled(soundProfiles),
   mechanismStyle: titled([['classic','Classic','The original capsule'],['brushedSteel','Brushed Steel','Satin metal · fine ribs'],['champagne','Champagne','Soft gold · Art Deco'],['walnut','Walnut','Wood grain · brass'],['porcelain','Porcelain','Ivory glaze · sage'],['midnight','Midnight','Graphite · gold inlay'],['roseQuartz','Rose Quartz','Blush stone · pearl veins'],['seaGlass','Sea Glass','Frosted teal · silver'],['lavender','Lavender','Lilac enamel · soft shine'],['racingGreen','Racing Green','Deep green · ivory stripes'],['copper','Copper','Hammered metal · patina'],['wildflower','Wildflower','Cream enamel · tiny blooms']]),
 });
-export const defaults = Object.freeze({
-  mechanismStyle:'classic', matchRailToStyle:true, paper:'ivory', paperStartPosition:'top',
-  paperMotion:'sheet', paperTexture:'classic', textureStrength:.55, paperEmbossing:'none',
-  embossingDepth:.45, capsule:'porcelain', rail:'steel', ribbon:'carbon', fontSize:20,
-  writingFont:'courier', inkStrength:.88, wornInk:true, inkBuildup:.55, wideMargins:true,
-  curvedPaper:true, garden:false, deskFinish:'charcoal', deskAccent:'none', widerFocusPaper:true,
-  soundEnabled:true, soundVolume:.30, typewriterSound:'classic', nightMode:false,
-  lampIntensity:.82, lampWarmth:.65,
-});
+export {defaults};
 const bounds = {textureStrength:[0,1], embossingDepth:[0,1], fontSize:[15,28], inkStrength:[.35,1], inkBuildup:[0,1], soundVolume:[0,1], lampIntensity:[.25,1], lampWarmth:[0,1]};
 export function normalizeSettings(source = {}) {
   return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
     const value = source?.[key];
+    if (key === 'marginStyle' && value == null && source?.garden === true) return [key, 'botanical'];
     if (key === 'typewriterSound') return [key, canonicalSound(value)];
     if (choices[key]) return [key, choices[key].some(x => x.id === value) ? value : fallback];
     if (bounds[key]) return [key, Number.isFinite(value) ? Math.min(bounds[key][1], Math.max(bounds[key][0], value)) : fallback];
@@ -168,17 +164,20 @@ export function mountPanels(root, callbacks = {}) {
     callbacks.onClose?.(previous);
     return true;
   }
-  function open(type) {
+  function open(type, page) {
     if (!dialog.open) activeBefore=document.activeElement;
     if (sub.open) sub.close();
     if (kind==='settings' && type!=='settings') {stopAudio(); cleanupPreviews();}
     kind=type; revision++; busy=false;
     dialog.classList.toggle('ip-library',type==='library');
+    dialog.classList.toggle('ip-seal-dialog',type==='seal');
     if (type==='settings') buildSettings();
+    else if (type==='seal') buildSeal(page);
     else { showDeleted=false; query=''; buildLibrary(); }
     if (!dialog.open) dialog.showModal();
     if (type==='settings') previews.forEach(hydratePreview);
     if (type==='library') searchInput.focus({preventScroll:true});
+    else if (type==='seal') dialog.querySelector('input').select();
     else nav.querySelector('[aria-selected="true"]').focus({preventScroll:true});
   }
   dialog.addEventListener('cancel',ev=>{ ev.preventDefault(); close(); });
@@ -239,13 +238,14 @@ export function mountPanels(root, callbacks = {}) {
     else item.renderer.update(state);
     styleWritingPreview(node,state);
     if(mode==='paper') {
-      node.setAttribute('aria-label','Paper and type preview: '+['paperMotion','paper','paperTexture','paperEmbossing','writingFont'].map(key=>labelFor(key,state[key])).join(', '));
+      node.setAttribute('aria-label','Paper and type preview: '+['paperMotion','paper','paperTexture','paperEmbossing','writingFont'].map(key=>labelFor(key,state[key])).join(', ')+', margin style '+labelFor('marginStyle',state.marginStyle));
       const sampleText=state.paperMotion==='roll'?'The paper rises.\nThe next line waits.':'The rain is soft.\nA little room to write.';
       const host=item.renderer.surface??node;
       if (!item.sample) item.sample=el('span','ip-sample ip-paper-sample');
       const sample=item.sample;
       if (sample.parentNode!==host) host.append(sample);
       sample.textContent=sampleText;
+      sample.classList.toggle('ip-sample-bordered',state.marginStyle!=='none');
       sample.classList.toggle('ip-sample-roll',state.paperMotion==='roll');
       sample.classList.toggle('ip-sample-bottom',state.paperStartPosition==='bottom');
     } else if(mode==='desk') {
@@ -333,8 +333,9 @@ export function mountPanels(root, callbacks = {}) {
           card('Page layout',null,options('paperMotion','Paper motion','segmented'),options('paperStartPosition','Start writing','segmented'),
             el('p','ip-note ip-start-note'),toggle('wideMargins','Wide margins')),
           card('Paper surface','Choose the feel of your sheet.',options('paper','Paper colour','swatches'),
-            select('paperTexture','Texture'),prefs.paperTexture!=='smooth'&&slider('textureStrength','Texture detail'),toggle('curvedPaper','Curved upper corners')),
-          card('Embossing','A quiet impression pressed into the paper.',select('paperEmbossing','Mark'),prefs.paperEmbossing!=='none'&&slider('embossingDepth','Relief'),toggle('garden','Botanical margins'))];
+            select('paperTexture','Texture'),prefs.paperTexture!=='smooth'&&slider('textureStrength','Texture detail'),toggle('curvedPaper','Curved upper corners'),
+            select('marginStyle','Margin style')),
+          card('Embossing','A quiet impression pressed into the paper.',select('paperEmbossing','Mark'),prefs.paperEmbossing!=='none'&&slider('embossingDepth','Relief'))];
         break;
       case 'type':
         nodes=[makePreview('type'),card('Typeface',null,select('writingFont','Writing font'),slider('fontSize','Type size',{percentage:false})),
@@ -454,6 +455,57 @@ export function mountPanels(root, callbacks = {}) {
     addError(dialog);
     dialog.insertBefore(errorBox,body);
     activateTab(tab);
+  }
+  function buildSeal(page) {
+    const existing=normalizeSeal(page.seal);
+    const draft={...(existing || defaultSeal)};
+    const form=el('form','ip-seal-form');
+    const heading=el('h2','','Letter seal');
+    heading.id=headingId;
+    const preview=el('div','ip-seal-preview');
+    const field=el('input','ip-title-input');
+    field.type='text';field.value=draft.text;field.autocomplete='off';
+    const textLabel=el('label','ip-seal-field');
+    textLabel.append(append(el('span','ip-seal-label'),el('span','','Seal text'),el('small','', 'Up to '+sealTextLimit+' characters')),field);
+    const apply=el('button','ip-emphasis',existing?'Save changes':'Apply seal');
+    apply.type='submit';
+    function previewDraft() {
+      const value=normalizeSeal(draft);
+      preview.replaceChildren(drawSeal(value || {...draft,text:''}));
+      apply.disabled=!value;
+    }
+    function updateText(event) {
+      if (event.isComposing) return;
+      const limited=limitSealText(field.value);
+      if (field.value!==limited) field.value=limited;
+      draft.text=limited;
+      previewDraft();
+    }
+    field.addEventListener('input',updateText);
+    field.addEventListener('compositionend',updateText);
+    function choiceField(key,label,choices) {
+      const field=el('select','ip-select');
+      for (const [id,name] of Object.entries(choices)) field.add(new Option(name,id));
+      field.value=draft[key];
+      field.onchange=()=>{draft[key]=field.value;previewDraft();};
+      return append(el('label','ip-seal-field'),el('span','',label),field);
+    }
+    const choices=append(el('div','ip-seal-choices'),choiceField('shape','Shape',sealShapes),choiceField('color','Wax color',sealColors));
+    const actions=el('footer','ip-confirm-actions');
+    if (existing) actions.append(button('Remove seal',async e=>{
+      if (await run('setSeal',page.id,null,e.currentTarget,true)) close();
+    },'ip-plain ip-remove-seal'));
+    actions.append(button('Cancel',close),apply);
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const value=normalizeSeal(draft);
+      if (value && await run('setSeal',page.id,value,apply,true)) close();
+    });
+    form.append(heading,preview,textLabel,choices);
+    addError(form);
+    form.append(actions);
+    dialog.replaceChildren(form);
+    previewDraft();
   }
   function buildLibrary() {
     const header=makeHeader('Your letter box.','Everything you left on the page.','ip-plain',true);
@@ -644,6 +696,7 @@ export function mountPanels(root, callbacks = {}) {
       open('settings');
     },
     showLibrary() { open('library'); },
+    showSeal(page) { open('seal',page); },
     close,
     isOpen() {return dialog.open;},
     update,

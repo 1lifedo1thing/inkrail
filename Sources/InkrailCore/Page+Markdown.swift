@@ -1,9 +1,32 @@
 import Foundation
 
+extension LetterSeal {
+    func markdownFooter(closesFence: Bool) -> String {
+        let inscription = text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        let fenceAttribute = closesFence ? " data-inkrail-closed-fence" : ""
+        return "<p data-inkrail-seal=\"\(shape.rawValue) \(color.rawValue)\"\(fenceAttribute)>✦ \(inscription) ✦</p>"
+    }
+}
+
 extension Page {
+    public var plainText: String {
+        guard let seal else { return text }
+        return text + (text.isEmpty ? "" : "\n\n") + "✦ \(seal.text) ✦"
+    }
+
+    public var markdownText: String {
+        let body = markdownBody
+        guard let seal else { return body }
+        let fence = MarkdownFence.openAtEnd(of: body)
+        let closing = fence.map { "\n\n" + $0.marker } ?? ""
+        return body + closing + (body.isEmpty ? "" : "\n\n") + seal.markdownFooter(closesFence: fence != nil)
+    }
+
     /// Source outside formatted spans passes through so handwritten Markdown
     /// keeps its meaning. Inline HTML supports underline and intraword spans.
-    public var markdownText: String {
+    private var markdownBody: String {
         let runs = formatting
         guard !runs.isEmpty else { return text }
         let source = text as NSString

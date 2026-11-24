@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 /// Works both from `swift run` / Xcode and in the locally built .app bundle.
 enum InkrailResources {
@@ -9,4 +10,10 @@ enum InkrailResources {
         }
         return Bundle.module
     }()
+
+    static func artwork(_ name: String) -> CGImage? {
+        guard let url = bundle.url(forResource: name, withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
 }

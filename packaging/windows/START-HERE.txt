@@ -1,4 +1,4 @@
-INKRAIL FOR WINDOWS
+INKRAIL v0.1.2 FOR WINDOWS
 Paper, ink, and a little room to write.
 1. Use the x64 ZIP for an Intel or AMD PC, or arm64 for an ARM-based PC.
 2. In File Explorer, choose Extract All. Keep the whole folder together.
@@ -11,6 +11,7 @@ Paper, ink, and a little room to write.
 At your desk:
   Ctrl+N                 New letter
   Ctrl+Shift+O           Letter box (search, rename, trash and restore)
+  F2 in the letter box   Rename the focused letter
   Ctrl+,                 Make it yours
   Ctrl+B / I / U         Bold / italic / underline
   Ctrl+\                 Clear inline formatting
@@ -20,24 +21,31 @@ At your desk:
   Ctrl+O                 Import text or Markdown
   Ctrl+S                 Save now (writing also autosaves)
   Ctrl+Shift+E           Export text
-  Alt+F or the top …     File menu, including Export Markdown
+  Alt+F or the top …     Open the file and writing menu
+
+Choose Seal letter… on a written page to add a wax seal. Choose Edit seal…
+to change its inscription, shape or color, or to remove it.
+The export button and the Alt+F menu offer three formats. Export Letter as
+PDF… keeps the finished stationery and seal. Export Markdown… preserves
+formatting and seal details for import into Inkrail. Export text… includes
+the words and seal inscription.
 
 Libraries:
-  Default letters: %APPDATA%\Inkrail\Library\Letters
+  Default library: %APPDATA%\Inkrail\Library
   Preferences:    %APPDATA%\Inkrail\preferences.json
   WebView2 cache: %LOCALAPPDATA%\Inkrail\WebView2
 
 To move your current Windows library, use Make it yours > Storage > Change
-location and select an empty folder. Inkrail copies and verifies the library;
-your old copy remains in place. Deleted letters are restorable for 30 days.
+location and select an empty folder. Inkrail copies and verifies the library.
+Your old copy remains in place. Deleted letters are restorable for 30 days.
 When storage is unavailable, export a copy before quitting. Keep independent
-backups; do not point multiple running copies of Inkrail at the same folder.
+backups and use one running copy of Inkrail per library.
 
-To bring over a Mac library, first back it up. With Inkrail closed on both
-computers, copy the entire library (Letters, Recently Deleted, and Recovery
-if present) into a NEW/EMPTY Windows library folder at the default path
-above, before first launch. Do not merge, overwrite an existing collection,
-or copy per-machine preferences. For individual letters, use Markdown.
+To bring over a Mac library before first launch on Windows, close Inkrail on
+both computers and back up the Mac library. Copy its contents into a new or
+empty %APPDATA%\Inkrail\Library folder. Check that Letters, Recently Deleted
+and Recovery (if present) sit directly inside Library. If you already have
+letters on Windows, use Markdown export and import to transfer individual letters.
 
 Optional native smoke test:
   Close the test copy of Inkrail. From PowerShell in this extracted folder,

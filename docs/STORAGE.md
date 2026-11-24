@@ -2,7 +2,7 @@
 
 [Back to the user guide](../README.md#your-letters)
 
-Inkrail saves your library locally. **Make it yours → Storage** shows the
+Inkrail v0.1.2 saves your library locally. **Make it yours → Storage** shows the
 current folder, including a custom location.
 
 | Platform | Default library folder | Open the current folder |
@@ -12,14 +12,18 @@ current folder, including a custom location.
 
 To move one letter between Mac and Windows, choose **File → Export Markdown…**
 on Mac. On Windows, press **Alt+F** and choose **Export Markdown…**. Import the saved
-`.md` file with **⌘O** on Mac or **Ctrl+O** on Windows. Use **Export Text…**
-for a plain-text copy.
+`.md` file with **⌘O** on Mac or **Ctrl+O** on Windows. Markdown preserves
+the formatting and a wax seal’s inscription, shape and color when you reimport
+the letter into Inkrail. **Export Text…** saves plain text, including the seal
+inscription. **Export Letter as PDF…** preserves the finished stationery and
+line wrapping, with embossing and decorative margins on the first sheet and
+the seal after the last line.
 
 ## Choose a different folder
 
 1. Open **Make it yours → Storage → Change Location…**.
-2. Choose an empty folder, or create a new folder in the chooser. Pick a
-   writable folder that will be available whenever you open Inkrail.
+2. Choose an empty folder outside the current library, or create one in the
+   chooser. Pick a writable folder that will be available whenever you open Inkrail.
 3. Inkrail saves any pending writing, copies the complete library and verifies
    the copied contents before switching locations. If saving or copying fails,
    the current location remains selected and Inkrail shows an error.
@@ -27,8 +31,22 @@ for a plain-text copy.
    folder, including after you quit and reopen the app.
 
 Use one running copy of Inkrail per library. Back up the whole current library
-folder. On Windows, letters are in its **Letters** subfolder. Windows
-preferences live separately in `%APPDATA%\Inkrail\preferences.json`.
+folder, including **Letters**, **Recently Deleted**, previous saved copies
+(`.json.bak`) and any **Recovery** files. Inkrail leaves the old library in
+place when it switches folders. Use the new folder for future backups.
+
+If a copy fails, some files may already be in the destination. Retry with a
+fresh, empty folder. Appearance and sound settings stay on the computer.
+Windows keeps them in `%APPDATA%\Inkrail\preferences.json`.
+
+### Bring a Mac library to a new Windows installation
+
+Before first launch on Windows, close Inkrail on both computers and back up the
+Mac library. Copy its **contents** into a new or empty
+`%APPDATA%\Inkrail\Library` folder on the PC. The resulting folders should be
+`%APPDATA%\Inkrail\Library\Letters` and `%APPDATA%\Inkrail\Library\Recently Deleted`,
+with **Recovery** alongside them if present. If you already have letters in
+your Windows library, use Markdown export and import to bring in individual letters.
 
 ### Windows Store upgrades
 
@@ -44,30 +62,21 @@ file, the upgrade keeps the Store version active and saves the other version
 beside it. The recovery notice lists those paths. Include them when backing up
 the library.
 
-### macOS storage details
+### iCloud Drive on Mac
 
-On Mac, the complete library includes **Letters**, **Recently Deleted**, previous saved
-copies (`.json.bak`) and any **Recovery** files. Inkrail leaves the previous
-folder intact as a safety copy. It no longer receives updates, so use the new
-folder for backups and recovery after making further edits.
+You can choose a library folder in iCloud Drive. iCloud handles syncing
+outside Inkrail. Keep a separate backup and use one Mac at a time to edit
+the library.
 
-The destination must be empty. Inkrail does not merge libraries, overwrite
-existing files, or allow a destination inside the current library. If a copy
-fails, files already copied may remain in the destination; your original
-library remains in place. Choose another empty folder when retrying.
-
-Appearance and sound preferences stay in macOS settings on this Mac. You
-can choose a folder in iCloud Drive. iCloud handles syncing outside Inkrail,
-and sync behavior is not guaranteed. Keep a separate backup and use one Mac
-at a time to edit the library.
+## Recover a changed or damaged letter on Mac or Windows
 
 If another app, backup or sync service replaces an open letter, Inkrail checks
 its saved contents before writing. If Inkrail reports that the saved copy
 changed, export your open edits as Markdown, then reopen Inkrail to see the
 version on disk. Import your exported file to keep both versions in the letter box.
-On disks that support atomic file exchange, Inkrail can also detect a change
-at the instant it replaces the file. In that case the open edits are already
-saved, and the notice gives the path to the other version.
+On Windows, and on Mac disks that support atomic file exchange, Inkrail also
+checks for changes made as it replaces the file. If the notice says your edits
+were saved, it gives the path to the other version.
 
 If a letter’s main file is missing or damaged, Inkrail looks for its matching
 `.json.bak` and shows a notice when it opens that copy. This also applies in
@@ -79,10 +88,8 @@ Open the letter box with **⇧⌘O** on Mac or **Ctrl+Shift+O** on Windows.
 Choose **Recently deleted**, then **Restore** beside the letter within
 30 days of deletion.
 
-### macOS cleanup details
-
-After 30 days, the Mac app permanently removes the deleted letter and its matching previous
-saved copy. It checks when opening the app, hourly while running, and before
+After 30 days, Inkrail permanently removes the deleted letter and its matching
+previous saved copy. Both apps check when opening, hourly while running, and before
 showing Recently Deleted or restoring a letter. If the app is closed at expiry,
 cleanup waits until the next launch.
 

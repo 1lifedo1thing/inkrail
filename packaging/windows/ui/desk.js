@@ -1,3 +1,5 @@
+import {defaults} from './defaults.js';
+
 // Port of the physical desk scene. All coordinates are CSS pixels (96dpi
 // logical units), independent of WebView2's device-pixel scale.
 const asset = name => new URL('./assets/' + name, import.meta.url).href;
@@ -19,15 +21,15 @@ export function deskGeometry(width, height, settings = {}) {
   const showAccent = !settings.focusMode && gutter >= 156 && height >= 400;
   const linen = settings.deskAccent === 'linenLamps';
   const lamps = showAccent && (linen || settings.deskAccent === 'brassLamps');
-  const bottom = settings.paperStartPosition === 'bottom';
+  const bottom = (settings.paperStartPosition ?? defaults.paperStartPosition) === 'bottom';
   return {width, height, paperWidth, paperHeight, gutter, bottom,
     editorHeight: paperHeight - (bottom ? 172 : 148), showAccent, linen, lamps, scale, left, top,
     sourceX: left + (linen ? 60.0325 : 112.5853) * scale,
     sourceY: top + (linen ? 100.1217 : 67.0969) * scale,
     footX: left + 46.8735 * scale, footY: top + 225.5433 * scale};
 }
-export function lightRGB(warmth = .65) {
-  warmth = clamp(number(warmth, .65), 0, 1);
+export function lightRGB(warmth) {
+  warmth = clamp(number(warmth, defaults.lampWarmth), 0, 1);
   const cool = [.92, .96, 1], middle = [1, .86, .65], amber = [1, .64, .30];
   return warmth <= .5 ? cool.map((v, i) => mix(v, middle[i], warmth * 2))
     : middle.map((v, i) => mix(v, amber[i], (warmth - .5) * 2));
@@ -63,7 +65,8 @@ export function carriagePosition(g, c = {}) {
   const writingY = Math.min(g.paperHeight - 108, Math.max(150, number(c.caretBottom, 104) + 42));
   const y = g.bottom ? g.editorHeight + 38
     : Math.max(writingY, Number.isFinite(c.followingTextBottom) ? Math.min(c.followingTextBottom, g.editorHeight) + 56 : 0);
-  return {x, y};
+  // Leave the full hammer above the rail clear of a visible wax impression.
+  return {x, y:Number.isFinite(c.sealBottom) ? Math.max(y, c.sealBottom + 56) : y};
 }
 const materials = {
   classic: [['#e5e2d6','#d2cfc4','#b5b2a8'],'#68705d',22,'steel'],
@@ -281,26 +284,94 @@ function gardenArt(w, h) {
   }
   return parts.join('');
 }
-function embossArt(style) {
-  if (style === 'monogram') return '<rect x="14" y="14" width="72" height="72" rx="16"/><path d="M29 32H44 M36.5 32V67 M29 67H44 M53 68V32H62 C78 32 78 51 62 51H53 M61 51L72 68"/>';
-  if (style === 'botanical') return '<ellipse cx="50" cy="50" rx="38" ry="42"/><path d="M49 78C56 63 43 45 49 31 M51 65Q41 54 32 48 M49 57Q58 51 68 40 M48 69Q36 73 28 61Q40 59 48 69 M52 66Q62 56 70 57Q66 66 52 66 M47 51Q39 51 36 35Q45 39 47 51"/><path d="M49 23Q56 22 54 29Q57 36 49 34Q41 36 44 29Q42 23 49 23 M30 42Q35 40 34 46Q34 51 30 50Q24 51 27 46Q25 42 30 42 M69 34Q75 33 73 38Q76 44 69 43Q63 44 65 39Q62 34 69 34"/>';
+
+const marginMotifs = {
+  artDeco: {
+    height: 96,
+    art: `<g stroke="#91754a" fill="none" stroke-width=".95" stroke-opacity=".76">
+      <path d="M18 0V22 M18 74V96 M18 22L14 26V31L9 36V60L14 65V70L18 74L22 70V65L27 60V36L22 31V26Z"/>
+      <path d="M18 36L13 48L18 60L23 48Z" stroke-width=".75"/>
+      <path d="M18 45L16 48L18 51L20 48Z" fill="#91754a" stroke="none"/>
+    </g>`,
+  },
+  celestial: {
+    height: 112,
+    art: `<path d="M12 18L24 36L16 54L23 67" stroke="#586879" stroke-opacity=".52" stroke-width=".75" fill="none"/>
+    <g fill="#586879" fill-opacity=".8">
+      <circle cx="12" cy="18" r="1.6"/><circle cx="16" cy="54" r="1.35"/><circle cx="23" cy="67" r="1.75"/>
+      <circle cx="11" cy="87" r=".9"/><circle cx="24" cy="98" r=".8"/>
+    </g>
+    <path d="M24 31L25 35L28 36L25 37L24 41L23 37L20 36L23 35Z" fill="#91754a"/>`,
+  },
+};
+
+function marginArt(style, width, height) {
+  if (style === 'botanical') return gardenArt(width, height);
+  let edge;
+  if (style === 'ledger') {
+    edge = `<g stroke="#8c514d">
+      <path d="M16 0V${height}" stroke-width=".95" opacity=".64"/>
+      <path d="M20 0V${height}" stroke-width=".6" opacity=".36"/>
+    </g>`;
+  } else if (Object.hasOwn(marginMotifs, style)) {
+    const motif = marginMotifs[style], tiles = [];
+    for (let y = 0; y < height; y += motif.height)
+      tiles.push(`<g transform="translate(0 ${y})">${motif.art}</g>`);
+    edge = tiles.join('');
+  } else {
+    return '';
+  }
+  return edge + `<g transform="translate(${width} 0) scale(-1 1)">${edge}</g>`;
+}
+
+function embossPath(style) {
+  // These same contours press the paper and catch the lamp along the lower rim.
+  if (style === 'monogram') return 'M30 14h40a16 16 0 0 1 16 16v40a16 16 0 0 1-16 16H30a16 16 0 0 1-16-16V30a16 16 0 0 1 16-16Z M29 32H44 M36.5 32V67 M29 67H44 M53 68V32H62 C78 32 78 51 62 51H53 M61 51L72 68';
+  if (style === 'botanical') return 'M12 50a38 42 0 1 0 76 0a38 42 0 1 0-76 0Z M49 78C56 63 43 45 49 31 M51 65Q41 54 32 48 M49 57Q58 51 68 40 M48 69Q36 73 28 61Q40 59 48 69 M52 66Q62 56 70 57Q66 66 52 66 M47 51Q39 51 36 35Q45 39 47 51 M49 23Q56 22 54 29Q57 36 49 34Q41 36 44 29Q42 23 49 23 M30 42Q35 40 34 46Q34 51 30 50Q24 51 27 46Q25 42 30 42 M69 34Q75 33 73 38Q76 44 69 43Q63 44 65 39Q62 34 69 34';
   if (style === 'sunburst') {
     let rays = '';
     for(let i=0;i<32;i++){
       const a=i*Math.PI/16,r1=i%2===0?16:21,r2=i%2===0?37:31;
       rays += `M${48+Math.cos(a)*r1} ${48+Math.sin(a)*r1}L${48+Math.cos(a)*r2} ${48+Math.sin(a)*r2} `;
     }
-    return `<circle cx="48" cy="48" r="43"/><circle cx="48" cy="48" r="10"/><path d="${rays}"/>`;
+    return 'M5 48a43 43 0 1 0 86 0a43 43 0 1 0-86 0Z M38 48a10 10 0 1 0 20 0a10 10 0 1 0-20 0Z ' + rays;
   }
   return '';
 }
 function setEmboss(node, style) {
-  const motif = embossArt(style);
+  if (style === 'makerMark') {
+    node.innerHTML = `<rect class="ink-desk__seal-shadow" width="96" height="96"/>
+      <rect class="ink-desk__seal-highlight" width="96" height="96"/>
+      <rect class="ink-desk__seal-face" width="96" height="96"/>`;
+    return;
+  }
+  const path = embossPath(style);
   node.innerHTML = [
-    ['translate(-.5 -.65)','#665f45','.34','1.15'],
-    ['translate(.5 .65)','#fff','.86','1.15'],
-    ['','#8b8268','.08','.45']
-  ].map(([tr,stroke,opacity,width]) => `<g transform="${tr}" fill="none" stroke="${stroke}" stroke-opacity="${opacity}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${motif}</g>`).join('');
+    ['translate(-.7 -.9)','#4b4434','.9','1.9'],
+    ['translate(.72 1)','#fffced','.95','1.2'],
+    ['','#645a44','.38','1.1']
+  ].map(([tr,stroke,opacity,width]) => `<path d="${path}" transform="${tr}" fill="none" stroke="${stroke}" stroke-opacity="${opacity}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
+}
+function embossRim(style, makerImage) {
+  const key='emboss-rim-'+style;
+  if (masks.has(key)) return masks.get(key);
+  if (style==='makerMark' && !makerImage.naturalWidth) return null;
+  const tile=canvas(192,192),ctx=tile.getContext('2d');
+  ctx.scale(2,2);
+  if (style==='makerMark') {
+    // The bevel catches the most light. The flat letterface catches half as much.
+    ctx.drawImage(makerImage,15+.72,20.5+1,66,55);
+    ctx.globalCompositeOperation='destination-out';
+    ctx.globalAlpha=.5;
+    ctx.drawImage(makerImage,15,20.5,66,55);
+  } else {
+    ctx.translate(.72,1);
+    ctx.lineWidth=1.2;
+    ctx.lineJoin=ctx.lineCap='round';
+    ctx.stroke(new Path2D(embossPath(style)));
+  }
+  masks.set(key,tile);
+  return tile;
 }
 function deskAccentArt(kind){
   if(kind==='paperclip'){
@@ -318,7 +389,12 @@ function deskAccentArt(kind){
 }
 
 function capsuleArt(style, trim, lit) {
-  if(style==='classic') return '';
+  if (style === 'classic') {
+    return `<g class="ink-desk__engraving">
+      <rect x="73" y="17.67" width="14" height="11.67" fill="white" fill-opacity=".34"/>
+      <rect x="73" y="17.17" width="14" height="11.67" fill="var(--engraving-color)"/>
+    </g>`;
+  }
   const textures={brushedSteel:'brushed',champagne:'brushed',walnut:'wood',porcelain:'ceramic',
     midnight:'matte',roseQuartz:'mineral',seaGlass:'frosted',lavender:'enamel',racingGreen:'enamel',
     copper:'hammered',wildflower:'ceramic'};
@@ -405,7 +481,43 @@ function capsuleArt(style, trim, lit) {
   return out.join('');
 }
 
-const railMarkup = '<i></i><i></i>';
+function drawPaperGrain(grain,g,prefs,classicImage,feed) {
+  const mode=prefs.paperTexture ?? 'classic', strength=clamp(number(prefs.textureStrength,defaults.textureStrength),0,1);
+  const rolling=prefs.paperMotion==='roll';
+  const ctx=setupCanvas(grain,g.paperWidth,g.paperHeight);
+  if(mode==='smooth'||!strength)return;
+  const tiles=[];
+  if((mode==='classic'||mode==='cotton')&&classicImage.complete&&classicImage.naturalWidth)
+    tiles.push([classicImage,640,mode==='cotton'?strength*.22:.35*strength/.55]);
+  if(mode==='laid'||mode==='cotton') tiles.push([textureTile(mode),256,strength]);
+  for(const [tile,period,alpha] of tiles){
+    ctx.globalAlpha=alpha;
+    const phase=feed%period, bend=Math.max(1,Math.min(180,g.editorHeight*.72));
+    const pattern=ctx.createPattern(tile,'repeat');
+    const from=(y)=>y>=bend?y:2*Math.sqrt(bend*y)-bend;
+    function band(top, bottom, docStart, docEnd, sx){
+      const sy=(bottom-top)/Math.max(.001,docEnd-docStart);
+      ctx.save();
+      ctx.beginPath();ctx.rect(0,top,g.paperWidth,bottom-top+.13);ctx.clip();
+      ctx.translate(g.paperWidth*(1-sx)/2,top-(docStart+phase)*sy);
+      ctx.scale(sx*period/tile.width,sy*period/tile.height);
+      ctx.fillStyle=pattern;
+      const ratio=tile.height/period;
+      ctx.fillRect(-period,(docStart+phase-1)*ratio,(g.paperWidth/sx+period)*tile.width/period,(docEnd-docStart+2)*ratio);
+      ctx.restore();
+    }
+    if(rolling){
+      for(let y=0;y<bend;y+=2){
+        const end=Math.min(bend,y+2),a=from(y),b=from(end);
+        band(y,end,a,b,.88+.12*clamp(((a+b)/2+bend)/(2*bend),0,1));
+      }
+      band(bend,g.paperHeight,bend,g.paperHeight,1);
+    } else band(0,g.paperHeight,0,g.paperHeight,1);
+  }
+  ctx.globalAlpha=1;
+}
+
+const railMarkup = '<i></i><span class="ink-desk__margin-stops"></span><i></i>';
 const capsuleMarkup = '<span class="ink-desk__hammer"></span><span class="ink-desk__housing"><i></i><i></i><i></i><svg class="ink-desk__capsule-art" viewBox="0 0 110 46" aria-hidden="true"></svg></span><span class="ink-desk__emitter"></span>';
 export function mountDesk(root, callbacks = {}) {
   const shell = document.createElement('div');
@@ -430,7 +542,7 @@ export function mountDesk(root, callbacks = {}) {
           <svg class="ink-desk__emboss" viewBox="0 0 96 96"></svg>
           <canvas class="ink-desk__edge-light"></canvas><canvas class="ink-desk__lamp-tint"></canvas>
         </div>
-        <svg class="ink-desk__garden" aria-hidden="true"></svg>
+        <svg class="ink-desk__margin-art" aria-hidden="true"></svg>
         <div class="ink-desk__surface"></div>
         <canvas class="ink-desk__veil" aria-hidden="true"></canvas>
         <div class="ink-desk__rail" aria-hidden="true">${railMarkup}</div>
@@ -443,13 +555,15 @@ export function mountDesk(root, callbacks = {}) {
   const q = name => shell.querySelector('.ink-desk__'+name);
   const header=q('header'), controls=q('controls'), footer=q('footer'), surface=q('surface');
   const rail=q('rail'), capsule=q('capsule'), capsuleDetails=q('capsule-art'), lip=q('lip').firstElementChild;
-  const garden=q('garden'), emboss=q('emboss');
+  const margin=q('margin-art'), emboss=q('emboss');
   const table=q('table'), accent=q('accent'), lamps=Array.from(shell.querySelectorAll('.ink-desk__lamp'));
   const feet=Array.from(shell.querySelectorAll('.ink-desk__foot'));
   const grain=q('grain'), material=q('material'), pools=q('pools'), edge=q('edge-light'), beam=q('lamp-tint'), veil=q('veil');
   const classicImage = new Image();
-  let prefs={}, caret={}, g, frame=0, lastFeed, lastLayout, lastTexture, lastEmboss, lastAccent, lastLamp, lastGarden, lastPosition, strikeTimer;
-  let edgeMask, capsuleTint, appearance, lastArt;
+  const makerImage = new Image();
+  makerImage.onload=()=>{lastPosition=undefined;schedule();};
+  let prefs={}, caret={}, g, frame=0, lastFeed, lastLayout, lastTexture, lastEmboss, lastAccent, lastLamp, lastMargin, lastPosition, strikeTimer;
+  let edgeMask, capsuleTint, appearance, lastArt, relief=0;
   let destroyed=false;
   const css = (node, vars) => { for (const [key,value] of Object.entries(vars)) node.style.setProperty(key, String(value)); };
   const show = (node, visible) => {node.hidden = !visible;};
@@ -493,18 +607,22 @@ export function mountDesk(root, callbacks = {}) {
         css(feet[i],{'left':(i===0?g.footX:g.width-g.footX)+'px','top':g.footY+'px','--foot-scale':g.scale});
       }
     }
-    const k=`${g.paperWidth}:${g.paperHeight}`;
-    if(prefs.garden && lastGarden!==k){lastGarden=k;garden.innerHTML=gardenArt(g.paperWidth,g.paperHeight);}
-    show(garden,!!prefs.garden);
+    const marginKey=`${prefs.marginStyle}:${g.paperWidth}:${g.paperHeight}`;
+    if (lastMargin!==marginKey) {
+      lastMargin=marginKey;
+      margin.innerHTML=marginArt(prefs.marginStyle,g.paperWidth,g.paperHeight);
+    }
   }
   function customize() {
-    const type=Object.hasOwn(materials,prefs.mechanismStyle)?prefs.mechanismStyle:'classic';
+    shell.toggleAttribute('data-narrow-margins', prefs.wideMargins === false);
+    const type=Object.hasOwn(materials,prefs.mechanismStyle)?prefs.mechanismStyle:defaults.mechanismStyle;
     const [colors,trim,radius,preferred]=materials[type];
     const lamp=lightRGB(prefs.lampWarmth);
-    appearance={color:tint(lamp),intensity:clamp(number(prefs.lampIntensity,.82),.25,1)};
+    appearance={color:tint(lamp),intensity:clamp(number(prefs.lampIntensity,defaults.lampIntensity),.25,1)};
     css(shell,{
       '--paper-color':papers[prefs.paper] ?? papers.ivory,
       '--capsule-fill':finishes[prefs.capsule] ?? finishes.porcelain,
+      '--engraving-color':['cobalt','graphite'].includes(prefs.capsule) ? 'rgb(232 225 202 / .58)' : 'rgb(36 41 33 / .5)',
       '--capsule-material':`linear-gradient(${colors.join(',')})`,
       '--trim':trim,'--capsule-radius':radius+'px','--lamp-color':appearance.color,
       '--lamp-alpha':.55+appearance.intensity*.45,
@@ -516,7 +634,10 @@ export function mountDesk(root, callbacks = {}) {
     if(lastArt!==artKey){lastArt=artKey;capsuleDetails.innerHTML=capsuleArt(type,trim,!!prefs.nightMode);}
     if(!callbacks.preview)capsule.setAttribute('aria-pressed',String(!!prefs.nightMode));
     if(lastEmboss!==prefs.paperEmbossing){lastEmboss=prefs.paperEmbossing;setEmboss(emboss,lastEmboss);}
-    emboss.style.opacity=clamp(number(prefs.embossingDepth,.45),0,1);
+    relief=Math.pow(clamp(number(prefs.embossingDepth,defaults.embossingDepth),0,1),.72);
+    emboss.style.opacity=relief;
+    if (lastEmboss==='makerMark' && prefs.nightMode && !makerImage.src) makerImage.src=asset('maker-mark.png');
+    lastPosition=undefined;
   }
   function paintLamps() {
     const key=`${g.width}:${g.height}:${g.paperWidth}:${g.paperHeight}:${g.lamps}:${g.linen}:${appearance.color}:${appearance.intensity}:${!!prefs.nightMode}`;
@@ -537,42 +658,36 @@ export function mountDesk(root, callbacks = {}) {
     lastPosition=undefined;
   }
   function paintGrain(feed) {
-    const mode=prefs.paperTexture ?? 'classic', strength=clamp(number(prefs.textureStrength,.55),0,1);
-    const rolling=prefs.paperMotion==='roll';
-    const key=`${g.paperWidth}:${g.paperHeight}:${mode}:${strength}:${rolling}:${feed}:${classicImage.complete&&classicImage.naturalWidth}`;
+    const key=[g.paperWidth,g.paperHeight,prefs.paperTexture,prefs.textureStrength,prefs.paperMotion,feed,classicImage.naturalWidth].join(':');
     if(lastTexture===key)return;
     lastTexture=key;
-    const ctx=setupCanvas(grain,g.paperWidth,g.paperHeight);
-    if(mode==='smooth'||!strength)return;
-    const tiles=[];
-    if((mode==='classic'||mode==='cotton')&&classicImage.complete&&classicImage.naturalWidth)
-      tiles.push([classicImage,640,mode==='cotton'?strength*.22:.35*strength/.55]);
-    if(mode==='laid'||mode==='cotton') tiles.push([textureTile(mode),256,strength]);
-    for(const [tile,period,alpha] of tiles){
-      ctx.globalAlpha=alpha;
-      const phase=feed%period, bend=Math.max(1,Math.min(180,g.editorHeight*.72));
-      const pattern=ctx.createPattern(tile,'repeat');
-      const from=(y)=>y>=bend?y:2*Math.sqrt(bend*y)-bend;
-      function band(top, bottom, docStart, docEnd, sx){
-        const sy=(bottom-top)/Math.max(.001,docEnd-docStart);
-        ctx.save();
-        ctx.beginPath();ctx.rect(0,top,g.paperWidth,bottom-top+.13);ctx.clip();
-        ctx.translate(g.paperWidth*(1-sx)/2,top-(docStart+phase)*sy);
-        ctx.scale(sx*period/tile.width,sy*period/tile.height);
-        ctx.fillStyle=pattern;
-        const ratio=tile.height/period;
-        ctx.fillRect(-period,(docStart+phase-1)*ratio,(g.paperWidth/sx+period)*tile.width/period,(docEnd-docStart+2)*ratio);
-        ctx.restore();
-      }
-      if(rolling){
-        for(let y=0;y<bend;y+=2){
-          const end=Math.min(bend,y+2),a=from(y),b=from(end);
-          band(y,end,a,b,.88+.12*clamp(((a+b)/2+bend)/(2*bend),0,1));
-        }
-        band(bend,g.paperHeight,bend,g.paperHeight,1);
-      } else band(0,g.paperHeight,0,g.paperHeight,1);
+    drawPaperGrain(grain,g,prefs,classicImage,feed);
+  }
+  async function printPaper() {
+    const settings={...prefs,paperMotion:'sheet'}, width=g.paperWidth;
+    const height=Math.max(g.paperHeight, Math.ceil(width*11/8.5));
+    const substrate=q('substrate').cloneNode(false);
+    substrate.style.setProperty('--paper-color',papers[settings.paper] ?? papers.ivory);
+    const texture=grain.cloneNode(false);
+    const ornaments=document.createElement('div');
+    ornaments.className='ink-print-ornaments';
+    if (margin.hasChildNodes()) {
+      const border=margin.cloneNode(false);
+      border.style.removeProperty('transform');
+      border.innerHTML=marginArt(settings.marginStyle,width,height);
+      ornaments.append(border);
     }
-    ctx.globalAlpha=1;
+    if (settings.paperEmbossing && settings.paperEmbossing!=='none') {
+      const mark=emboss.cloneNode(true);
+      mark.hidden=false;
+      css(mark,{'left':Math.max(60,width-77)+'px','top':'77px','transform':'translate(-50%,-50%)'});
+      ornaments.append(mark);
+    }
+    if (['classic','cotton'].includes(settings.paperTexture ?? 'classic') && settings.textureStrength!==0)
+      await classicImage.decode();
+    drawPaperGrain(texture,{paperWidth:width,paperHeight:height},settings,classicImage,0);
+    substrate.append(texture);
+    return {width,height,substrate,ornaments};
   }
   function motion() {
     if(!g)return;
@@ -586,17 +701,19 @@ export function mountDesk(root, callbacks = {}) {
       const path=paperOutline(g.paperWidth,g.paperHeight,rolled?0:feed,prefs.curvedPaper!==false);
       shell.style.setProperty('--paper-outline',`path("${path.outline}")`);lip.setAttribute('d',path.lip);
     }
-    if(prefs.garden) garden.style.transform=`translateY(${-feed}px)`;
+    if(margin.hasChildNodes()) margin.style.transform=`translateY(${-feed}px)`;
     const embossY=77-feed, bend=Math.max(1,Math.min(180,g.editorHeight*.72));
     const progress=clamp((embossY+bend)/(2*bend),0,1);
     const project=(y)=>y>=bend?y:Math.sign(y+bend)*(y+bend)**2/(4*bend);
     const sx=rolled?.88+.12*progress:1, sy=rolled?Math.max(.02,(project(embossY+48)-project(embossY-48))/96):1;
-    css(emboss,{'left':(g.paperWidth/2+(Math.max(60,g.paperWidth-77)-g.paperWidth/2)*sx)+'px',
-      'top':(rolled?project(embossY):embossY)+'px','transform':`translate(-50%,-50%) scale(${sx},${sy})`});
-    show(emboss,!!lastEmboss && lastEmboss!=='none' && feed<(rolled?310:130));
+    const markX=g.paperWidth/2+(Math.max(60,g.paperWidth-77)-g.paperWidth/2)*sx;
+    const markY=rolled?project(embossY):embossY;
+    css(emboss,{'left':markX+'px','top':markY+'px','transform':`translate(-50%,-50%) scale(${sx},${sy})`});
+    const showMark=!!lastEmboss && lastEmboss!=='none' && feed<(rolled?310:130);
+    show(emboss,showMark);
     show(beam,!!prefs.nightMode&&!callbacks.noCapsule&&!callbacks.noVeil);show(veil,!!prefs.nightMode&&!callbacks.noVeil);
-    if(!prefs.nightMode || callbacks.noVeil || (lastPosition && lastPosition.x===x && lastPosition.y===y))return;
-    lastPosition={x,y};
+    if(!prefs.nightMode || callbacks.noVeil || (lastPosition && lastPosition.x===x && lastPosition.y===y && lastPosition.feed===feed))return;
+    lastPosition={x,y,feed};
     const v=setupCanvas(veil,g.paperWidth,g.paperHeight);
     v.globalAlpha=1;v.globalCompositeOperation='source-over';v.fillStyle='rgba(0,0,0,.80)';
     v.fillRect(0,0,g.paperWidth,g.paperHeight);
@@ -612,6 +729,13 @@ export function mountDesk(root, callbacks = {}) {
       v.globalAlpha=appearance.intensity*.92;
       drawPair(v,edgeMask,0,0,42,g.paperHeight,g.paperWidth);
     }
+    if(showMark && relief>0){
+      const rim=embossRim(lastEmboss,makerImage);
+      if(rim){
+        v.globalAlpha=relief*(.22+.28*appearance.intensity);
+        v.drawImage(rim,markX-48*sx,markY-48*sy,96*sx,96*sy);
+      }
+    }
     v.globalAlpha=1;v.globalCompositeOperation='source-over';
   }
   function schedule() {
@@ -623,7 +747,7 @@ export function mountDesk(root, callbacks = {}) {
     layout();paintLamps();motion();
   }
   function update(settings = {}) {
-    prefs={...settings};
+    prefs={...defaults,...settings};
     customize();resize();
   }
   if(callbacks.preview){
@@ -641,7 +765,7 @@ export function mountDesk(root, callbacks = {}) {
   classicImage.addEventListener('load',schedule);
   classicImage.src=asset('paper-grain.png');
   update();
-  return {surface,header,controls,footer,update,resize,
+  return {surface,header,controls,footer,update,resize,printPaper,
     move(next = {}){caret={...next};schedule();},
     strike(){capsule.classList.add('ink-desk__capsule--strike');clearTimeout(strikeTimer);
       strikeTimer=setTimeout(()=>capsule.classList.remove('ink-desk__capsule--strike'),65);},
@@ -653,7 +777,7 @@ export function mountDeskPreview(root, settings = {}, mode = 'desk') {
   const container=document.createElement('div');
   container.className='ink-desk__preview'; root.append(container);
   const noCapsule=mode==='desk';
-  let prefs=settings;
+  let prefs={...defaults,...settings};
   let desk, logicalKey='';
   function render(){
     const {width,height}=root.getBoundingClientRect();
@@ -684,5 +808,5 @@ export function mountDeskPreview(root, settings = {}, mode = 'desk') {
     if(mode==='paper')desk.showCapsule(prefs.paperMotion==='roll');
   }
   const observer=new ResizeObserver(render);observer.observe(root);render();
-  return {get surface(){return desk?.surface;},update(settings){prefs=settings;render();},destroy(){observer.disconnect();desk?.destroy();container.remove();}};
+  return {get surface(){return desk?.surface;},update(settings){prefs={...defaults,...settings};render();},destroy(){observer.disconnect();desk?.destroy();container.remove();}};
 }

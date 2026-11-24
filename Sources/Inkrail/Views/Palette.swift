@@ -48,25 +48,87 @@ enum DeskPalette {
     static let accent = Color(hex: 0x738168)
 }
 
+/// Explicit artwork keeps the default-action button olive even when AppKit
+/// chooses the system accent for a native default bezel. SwiftUI retains the
+/// button action, Return shortcut and accessibility semantics.
+struct DeskPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.isFocused) private var focused
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.white)
+            .padding(.horizontal, 11).padding(.vertical, 4)
+            .background {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(DeskPalette.accent)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(LinearGradient(colors: [.black.opacity(0.04), .black.opacity(0.24)],
+                                                 startPoint: .top, endPoint: .bottom))
+                    }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(DeskPalette.ink.opacity(focused ? 0.75 : 0.25), lineWidth: focused ? 2 : 0.6)
+            }
+            .brightness(configuration.isPressed ? -0.12 : 0)
+            .opacity(enabled ? 1 : 0.45)
+    }
+}
+
 @MainActor
 struct QuietButton: View {
-    private static let side: CGFloat = 34
     let symbol: String
     let label: String
     var onDark = false
     var active = false
     var themedHoverLabel = false
     var action: () -> Void
+
+    var body: some View {
+        Button(action: action) { DeskControlIcon(symbol: symbol, onDark: onDark) }
+            .buttonStyle(.plain)
+            .modifier(DeskControlHover(label: label, onDark: onDark, active: active,
+                                       themedHoverLabel: themedHoverLabel))
+    }
+}
+
+struct DeskControlIcon: View {
+    static let side: CGFloat = 34
+    let symbol: String
+    let onDark: Bool
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .regular))
+            .foregroundColor(onDark ? Color(hex: 0xB8BAAA) : DeskPalette.ink.opacity(0.75))
+            .frame(width: Self.side, height: Self.side)
+            .contentShape(Rectangle())
+    }
+}
+
+/// Track the whole control so menus and buttons share the same hover area.
+struct DeskControlHover: ViewModifier {
+    let label: String
+    let onDark: Bool
+    var active = false
+    var themedHoverLabel = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @InkrailState private var hovered = false
 
-    var body: some View {
+    func body(content: Content) -> some View {
+        let control = content
+            .background(Circle().fill((onDark ? Color.white : Color.black).opacity(hovered || active ? 0.08 : 0)))
+            .onHover { hovered = $0 }
+            .accessibilityLabel(label)
         if themedHoverLabel {
             control
                 .overlay(alignment: .topTrailing) {
                     if hovered {
                         DeskHoverLabel(text: label, onDark: onDark)
-                            .offset(y: Self.side + 6)
+                            .offset(y: DeskControlIcon.side + 6)
                             .transition(.opacity)
                     }
                 }
@@ -75,19 +137,6 @@ struct QuietButton: View {
         } else {
             control.help(label)
         }
-    }
-
-    private var control: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .regular))
-                .frame(width: Self.side, height: Self.side)
-                .foregroundColor(onDark ? Color(hex: 0xB8BAAA) : DeskPalette.ink.opacity(0.75))
-                .background(Circle().fill((onDark ? Color.white : Color.black).opacity(hovered || active ? 0.08 : 0)))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .accessibilityLabel(label)
     }
 }
 

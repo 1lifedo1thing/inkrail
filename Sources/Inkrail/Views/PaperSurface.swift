@@ -46,12 +46,9 @@ private struct PaperLip: Shape {
 }
 
 @MainActor
-struct PaperSurface: View {
+struct PaperStock: View {
     var preferences: WritingPreferences
-    var feedOffset: CGFloat = 0
-
-    private var feed: CGFloat { max(0, feedOffset.isFinite ? feedOffset : 0) }
-    private var rolling: Bool { preferences.paperMotion == .roll }
+    var feed: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -65,7 +62,7 @@ struct PaperSurface: View {
                 // 1280 is a whole number of both the original 640pt grain
                 // and the new 256pt tiles. Keep a bounded surface even for a
                 // long letter; the native scroll view owns its exact motion.
-                if rolling {
+                if preferences.paperMotion == .roll {
                     RolledPaperTexture(preferences: preferences, feed: feed)
                 } else {
                     PaperTextureLayer(preferences: preferences)
@@ -73,22 +70,26 @@ struct PaperSurface: View {
                         .offset(y: -feed.truncatingRemainder(dividingBy: 1280))
                 }
             }.clipped()
-            if preferences.paperEmbossing != .none && feed < (rolling ? 310 : 130) {
-                GeometryReader { geometry in
-                    let projection = PaperRollProjection(width: geometry.size.width,
-                        viewportHeight: PaperFeedLayout.editorHeight(paperHeight: geometry.size.height,
-                            position: preferences.effectivePaperStartPosition, motion: .roll))
-                    let markY = 77 - feed
-                    let markX = max(60, geometry.size.width - 77)
-                    PaperEmbossingMark(style: preferences.paperEmbossing, depth: preferences.embossingDepth)
-                        .frame(width: 96, height: 96)
-                        .scaleEffect(x: rolling ? projection.horizontalScale(at: markY) : 1,
-                                     y: rolling ? max(0.02, (projection.projectY(markY + 48)
-                                         - projection.projectY(markY - 48)) / 96) : 1)
-                        .position(x: rolling ? projection.projectX(markX, at: markY) : markX,
-                                  y: rolling ? projection.projectY(markY) : markY)
-                }
+            PaperEmbossingLayer(preferences: preferences, feedOffset: feed)
+            if preferences.marginStyle != .none {
+                PaperMargins(style: preferences.marginStyle)
+                    .offset(y: -feed)
             }
+        }
+    }
+}
+
+@MainActor
+struct PaperSurface: View {
+    var preferences: WritingPreferences
+    var feedOffset: CGFloat = 0
+
+    private var feed: CGFloat { max(0, feedOffset.isFinite ? feedOffset : 0) }
+    private var rolling: Bool { preferences.paperMotion == .roll }
+
+    var body: some View {
+        ZStack {
+            PaperStock(preferences: preferences, feed: feed)
             if preferences.curvedPaper {
                 HStack(spacing: 0) {
                     LinearGradient(colors: [.black.opacity(0.12), .white.opacity(0.07), .clear], startPoint: .leading, endPoint: .trailing)
@@ -118,6 +119,36 @@ struct PaperSurface: View {
         .clipped()
         .animation(nil, value: feedOffset)
         .accessibilityHidden(true)
+    }
+}
+
+/// The relief and the light on its bevel share a position as the paper feeds and bends.
+@MainActor
+private struct PaperEmbossingLayer: View {
+    var preferences: WritingPreferences
+    var feedOffset: CGFloat
+    var highlightOnly = false
+
+    var body: some View {
+        let feed = max(0, feedOffset.isFinite ? feedOffset : 0)
+        let rolling = preferences.paperMotion == .roll
+        if preferences.paperEmbossing != .none && preferences.embossingDepth > 0 && feed < (rolling ? 310 : 130) {
+            GeometryReader { geometry in
+                let projection = PaperRollProjection(width: geometry.size.width,
+                    viewportHeight: PaperFeedLayout.editorHeight(paperHeight: geometry.size.height,
+                        position: preferences.effectivePaperStartPosition, motion: .roll))
+                let markY = 77 - feed
+                let markX = max(60, geometry.size.width - 77)
+                PaperEmbossingMark(style: preferences.paperEmbossing, depth: preferences.embossingDepth,
+                                   highlightOnly: highlightOnly)
+                    .frame(width: 96, height: 96)
+                    .scaleEffect(x: rolling ? projection.horizontalScale(at: markY) : 1,
+                                 y: rolling ? max(0.02, (projection.projectY(markY + 48)
+                                     - projection.projectY(markY - 48)) / 96) : 1)
+                    .position(x: rolling ? projection.projectX(markX, at: markY) : markX,
+                              y: rolling ? projection.projectY(markY) : markY)
+            }
+        }
     }
 }
 
@@ -260,20 +291,28 @@ struct NightLighting: View {
     var headX: CGFloat
     var railY: CGFloat
     var preferences: WritingPreferences
+    var feedOffset: CGFloat = 0
     var deskScene: DeskSceneLayout? = nil
+    var showsCapsuleLight = true
 
     var body: some View {
         let lamp = LampAppearance(warmth: preferences.lampWarmth, intensity: preferences.lampIntensity)
         ZStack {
             Color.black.opacity(0.80)
-            LampFootprint(headX: headX, railY: railY)
-                .opacity(lamp.intensity)
-                .blendMode(.destinationOut)
+            if showsCapsuleLight {
+                LampFootprint(headX: headX, railY: railY)
+                    .opacity(lamp.intensity)
+                    .blendMode(.destinationOut)
+            }
             if let scene = deskScene, scene.isVisible {
                 DeskPaperLightMask(scene: scene, size: size)
                     .opacity(lamp.intensity * 0.92)
                     .blendMode(.destinationOut)
             }
+            // Grazing light reveals the lower lip through the veil, including any ink on it.
+            PaperEmbossingLayer(preferences: preferences, feedOffset: feedOffset, highlightOnly: true)
+                .opacity(0.22 + 0.28 * lamp.intensity)
+                .blendMode(.destinationOut)
         }
         .compositingGroup()
         .frame(width: size.width, height: size.height)
@@ -302,7 +341,8 @@ struct NightLampPreview: View {
                 if preferences.nightMode {
                     NightLighting(size: geometry.size, headX: headX, railY: railY, preferences: preferences)
                 }
-                RailView(finish: preferences.effectiveRailFinish, style: preferences.mechanismStyle)
+                RailView(finish: preferences.effectiveRailFinish, style: preferences.mechanismStyle,
+                         marginStopInset: preferences.writingMargin + 2)
                     .frame(width: geometry.size.width + 4)
                     .position(x: geometry.size.width / 2, y: railY)
                     .brightness(preferences.nightMode ? -0.22 : 0)
@@ -321,45 +361,116 @@ struct NightLampPreview: View {
     }
 }
 
-/// Original, deliberately restrained vector botanicals. No Platen artwork.
 @MainActor
-struct MarginGarden: View {
+private struct PaperMargins: View {
+    var style: PaperMarginStyle
+
     var body: some View {
         Canvas { context, size in
-            for side in 0..<2 {
-                let edge: CGFloat = side == 0 ? 13 : size.width - 13
-                let sign: CGFloat = side == 0 ? 1 : -1
-                var stem = Path()
-                stem.move(to: CGPoint(x: edge, y: 32))
-                for i in 1...28 {
-                    let x = edge + sin(CGFloat(i) * 0.8) * 7
-                    let y = CGFloat(i) * size.height / 28
-                    stem.addLine(to: CGPoint(x: x, y: y))
-                }
-                context.stroke(stem, with: .color(Color(hex: 0x65724B).opacity(0.65)), lineWidth: 1.1)
-                for i in 1...25 {
-                    let y = CGFloat(i) * (size.height - 30) / 26 + 13
-                    let x = edge + sin(CGFloat(i) * 0.8) * 7
-                    let length: CGFloat = 12 + CGFloat(i % 4) * 2
-                    let direction = i % 2 == 0 ? sign : -sign * 0.55
-                    var leaf = Path()
-                    leaf.move(to: CGPoint(x: x, y: y))
-                    leaf.addQuadCurve(to: CGPoint(x: x + direction * length, y: y - 17), control: CGPoint(x: x + direction * (length + 7), y: y - 1))
-                    leaf.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: x + direction * 2, y: y - 19))
-                    context.fill(leaf, with: .linearGradient(Gradient(colors: [Color(hex: 0x7C8B55), Color(hex: 0x3C5940)]), startPoint: CGPoint(x: x, y: y - 18), endPoint: CGPoint(x: x + length, y: y)))
-                    if i % 6 == 2 {
-                        let flowerX = x + sign * 15
-                        for petal in 0..<5 {
-                            let angle = CGFloat(petal) * .pi * 2 / 5
-                            let rect = CGRect(x: flowerX + cos(angle) * 4 - 3, y: y + sin(angle) * 4 - 3, width: 6, height: 7)
-                            context.fill(Path(ellipseIn: rect), with: .color(Color(hex: side == 0 ? 0xA99BB2 : 0xDFD9BD)))
-                        }
-                        context.fill(Path(ellipseIn: CGRect(x: flowerX - 1.5, y: y - 1.5, width: 3, height: 3)), with: .color(Color(hex: 0xB8A064)))
-                    }
-                }
+            switch style {
+            case .none: break
+            case .botanical:
+                // A short settings preview shows a crop of the vine at writing-desk scale.
+                drawBotanical(in: context, size: CGSize(width: size.width, height: max(430, size.height)))
+            case .ledger: drawEdges(in: context, size: size, draw: drawLedger)
+            case .artDeco: drawEdges(in: context, size: size, draw: drawArtDeco)
+            case .celestial: drawEdges(in: context, size: size, draw: drawCelestial)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private func drawEdges(in context: GraphicsContext, size: CGSize, draw: (GraphicsContext, CGFloat) -> Void) {
+        draw(context, size.height)
+        var right = context
+        right.translateBy(x: size.width, y: 0)
+        right.scaleBy(x: -1, y: 1)
+        draw(right, size.height)
+    }
+
+    private func line(_ points: [(CGFloat, CGFloat)], closed: Bool = false) -> Path {
+        Path { path in
+            path.addLines(points.map { CGPoint(x: $0.0, y: $0.1) })
+            if closed { path.closeSubpath() }
+        }
+    }
+
+    private func drawLedger(in edge: GraphicsContext, height: CGFloat) {
+        let oxblood = Color(hex: 0x8C514D)
+        edge.stroke(line([(16, 0), (16, height)]), with: .color(oxblood.opacity(0.64)), lineWidth: 0.95)
+        edge.stroke(line([(20, 0), (20, height)]), with: .color(oxblood.opacity(0.36)), lineWidth: 0.6)
+    }
+
+    private func drawArtDeco(in edge: GraphicsContext, height: CGFloat) {
+        let brass = Color(hex: 0x91754A)
+        var frame = line([(18, 22), (14, 26), (14, 31), (9, 36), (9, 60), (14, 65), (14, 70), (18, 74),
+                          (22, 70), (22, 65), (27, 60), (27, 36), (22, 31), (22, 26)], closed: true)
+        frame.addPath(line([(18, 0), (18, 22)]))
+        frame.addPath(line([(18, 74), (18, 96)]))
+        let diamond = line([(18, 36), (23, 48), (18, 60), (13, 48)], closed: true)
+        let center = line([(18, 44.5), (19.6, 48), (18, 51.5), (16.4, 48)], closed: true)
+        var tile = edge
+        for _ in stride(from: CGFloat.zero, to: height, by: 96) {
+            tile.stroke(frame, with: .color(brass.opacity(0.76)), lineWidth: 0.9)
+            tile.stroke(diamond, with: .color(brass.opacity(0.68)), lineWidth: 0.75)
+            tile.fill(center, with: .color(brass))
+            tile.translateBy(x: 0, y: 96)
+        }
+    }
+
+    private func drawCelestial(in edge: GraphicsContext, height: CGFloat) {
+        let slate = Color(hex: 0x586879)
+        let constellation = line([(12, 18), (24, 36), (16, 54), (23, 67)])
+        let northStar = line([(24, 31), (25, 35), (28, 36), (25, 37), (24, 41), (23, 37),
+                              (20, 36), (23, 35)], closed: true)
+        var stars = Path()
+        let dots: [(CGFloat, CGFloat, CGFloat)] = [(12, 18, 1.6), (16, 54, 1.2), (23, 67, 1.8),
+                                                   (11, 87, 0.9), (24, 98, 0.65)]
+        for (x, y, radius) in dots {
+            stars.addEllipse(in: CGRect(x: x - radius, y: y - radius, width: 2 * radius, height: 2 * radius))
+        }
+        var tile = edge
+        for _ in stride(from: CGFloat.zero, to: height, by: 112) {
+            tile.stroke(constellation, with: .color(slate.opacity(0.52)), lineWidth: 0.75)
+            tile.fill(stars, with: .color(slate.opacity(0.83)))
+            tile.fill(northStar, with: .color(Color(hex: 0xA1804D)))
+            tile.translateBy(x: 0, y: 112)
+        }
+    }
+
+    private func drawBotanical(in context: GraphicsContext, size: CGSize) {
+        for side in 0..<2 {
+            let edge: CGFloat = side == 0 ? 13 : size.width - 13
+            let sign: CGFloat = side == 0 ? 1 : -1
+            var stem = Path()
+            stem.move(to: CGPoint(x: edge, y: 32))
+            for i in 1...28 {
+                let x = edge + sin(CGFloat(i) * 0.8) * 7
+                let y = CGFloat(i) * size.height / 28
+                stem.addLine(to: CGPoint(x: x, y: y))
+            }
+            context.stroke(stem, with: .color(Color(hex: 0x65724B).opacity(0.65)), lineWidth: 1.1)
+            for i in 1...25 {
+                let y = CGFloat(i) * (size.height - 30) / 26 + 13
+                let x = edge + sin(CGFloat(i) * 0.8) * 7
+                let length: CGFloat = 12 + CGFloat(i % 4) * 2
+                let direction = i % 2 == 0 ? sign : -sign * 0.55
+                var leaf = Path()
+                leaf.move(to: CGPoint(x: x, y: y))
+                leaf.addQuadCurve(to: CGPoint(x: x + direction * length, y: y - 17), control: CGPoint(x: x + direction * (length + 7), y: y - 1))
+                leaf.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: x + direction * 2, y: y - 19))
+                context.fill(leaf, with: .linearGradient(Gradient(colors: [Color(hex: 0x7C8B55), Color(hex: 0x3C5940)]), startPoint: CGPoint(x: x, y: y - 18), endPoint: CGPoint(x: x + length, y: y)))
+                if i % 6 == 2 {
+                    let flowerX = x + sign * 15
+                    for petal in 0..<5 {
+                        let angle = CGFloat(petal) * .pi * 2 / 5
+                        let rect = CGRect(x: flowerX + cos(angle) * 4 - 3, y: y + sin(angle) * 4 - 3, width: 6, height: 7)
+                        context.fill(Path(ellipseIn: rect), with: .color(Color(hex: side == 0 ? 0xA99BB2 : 0xDFD9BD)))
+                    }
+                    context.fill(Path(ellipseIn: CGRect(x: flowerX - 1.5, y: y - 1.5, width: 3, height: 3)), with: .color(Color(hex: 0xB8A064)))
+                }
+            }
+        }
     }
 }

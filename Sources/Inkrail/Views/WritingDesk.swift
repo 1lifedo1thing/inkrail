@@ -50,6 +50,9 @@ struct WritingDesk: View {
         .sheet(isPresented: $model.showStudio, onDismiss: { model.focusEditor() }) {
             StudioView().environmentObject(model)
         }
+        .sheet(item: $model.sealEditorPage, onDismiss: { model.focusEditor() }) { page in
+            LetterSealSheet(existing: page.seal) { seal in model.setSeal(seal, for: page.id) }
+        }
         .alert("Your writing", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -76,11 +79,15 @@ struct WritingDesk: View {
         }
         .frame(width: width - 12)
         .overlay {
-            Text("INKRAIL")
-                .font(.custom("Courier", size: 10))
-                .tracking(3.6)
-                .foregroundColor(Color(hex: 0x8C8F7E).opacity(0.65))
-                .allowsHitTesting(false)
+            HStack(spacing: 8) {
+                InkrailMakerMark(width: 22)
+                    .foregroundColor(Color(hex: 0xBCAC84))
+                Text("INKRAIL")
+                    .font(.custom("Courier-Bold", size: 10))
+                    .tracking(2.7)
+                    .foregroundColor(Color(hex: 0xB4B6A5))
+            }
+            .allowsHitTesting(false)
         }
     }
 
@@ -125,15 +132,14 @@ struct PaperStage: View {
                 LitPaperSurface(size: geometry.size, headX: headX, railY: railY,
                                 preferences: model.preferences, feedOffset: caret.scrollOffset,
                                 deskScene: deskScene)
-                if model.preferences.garden {
-                    MarginGarden().offset(y: -caret.scrollOffset).animation(nil, value: caret.scrollOffset)
-                }
                 PaperEditor(
                     page: page, currentPage: { model.selectedPage },
                     preferences: model.preferences,
                     onChange: { model.edit($0, text: $1, formatting: $2) },
+                    onRestoreSeal: { model.setSeal($1, for: $0) },
                     onCaret: { position in
-                        if caret.startPosition != startPosition || caret.followingTextBottom != position.followingTextBottom {
+                        if caret.startPosition != startPosition || caret.followingTextBottom != position.followingTextBottom
+                            || caret.sealFrame != position.sealFrame {
                             // Move directly to clear the text, including during scrolling.
                             caret = position
                         } else {
@@ -150,20 +156,31 @@ struct PaperStage: View {
                     onConnect: { model.editor = $0 }
                 )
                 .frame(width: width, height: editorHeight)
+                .overlay(alignment: .topLeading) {
+                    if let seal = page.seal, let frame = caret.sealFrame {
+                        LetterSealMark(text: seal.text, shape: seal.shape, color: seal.color)
+                            .scaleEffect(x: frame.width / CaretPosition.sealSize.width,
+                                         y: frame.height / CaretPosition.sealSize.height)
+                            .position(x: frame.midX, y: frame.midY)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .clipped()
                 if page.text.isEmpty {
                     Text("Begin anywhere.")
                         .font(model.preferences.writingFont.font(size: model.preferences.fontSize))
                         .foregroundColor(DeskPalette.mutedInk.opacity(0.43))
-                        .padding(.leading, rolling ? max(0, caret.x) : (model.preferences.wideMargins ? 76 : 46))
+                        .padding(.leading, rolling ? max(0, caret.x) : model.preferences.writingMargin)
                         .padding(.top, max(0, placeholderTop + 3))
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
                 if model.preferences.nightMode {
                     NightLighting(size: geometry.size, headX: headX, railY: railY,
-                                  preferences: model.preferences, deskScene: deskScene)
+                                  preferences: model.preferences, feedOffset: caret.scrollOffset, deskScene: deskScene)
                 }
-                RailView(finish: model.preferences.effectiveRailFinish, style: model.preferences.mechanismStyle)
+                RailView(finish: model.preferences.effectiveRailFinish, style: model.preferences.mechanismStyle,
+                         marginStopInset: model.preferences.writingMargin + 2)
                     .frame(width: width + 4)
                     .position(x: width / 2, y: railY)
                     .brightness(model.preferences.nightMode ? -0.22 : 0)
@@ -194,6 +211,8 @@ struct PaperStage: View {
                     .onHover { controlsHovered = $0 }
             }
             .animation(nil, value: caret.scrollOffset)
+            .onAppear { model.paperSizeForExport = geometry.size }
+            .onChange(of: geometry.size) { model.paperSizeForExport = $0 }
             .onChange(of: page.id) { _ in caret = CaretPosition(); striking = false }
         }
     }
@@ -211,13 +230,28 @@ struct PaperStage: View {
                 emphasisButton(.underline, symbol: "underline", title: "Underline", shortcut: "u")
             }
             .padding(.trailing, 10)
+            QuietButton(symbol: "seal", label: page.seal == nil ? "Seal letter…" : "Edit seal…",
+                        onDark: model.preferences.nightMode, active: page.seal != nil, themedHoverLabel: true) {
+                model.openSealEditor()
+            }
+            .disabled(!page.canApplySeal)
             QuietButton(symbol: model.preferences.soundEnabled ? "speaker.wave.1" : "speaker.slash",
                         label: model.preferences.soundEnabled ? "Mute sounds · ⇧⌘M" : "Turn sounds on · ⇧⌘M",
                         onDark: model.preferences.nightMode, themedHoverLabel: true) {
                 model.preferences.soundEnabled.toggle(); model.focusEditor()
             }
-            QuietButton(symbol: "arrow.up.doc", label: "Export text · ⇧⌘E",
-                        onDark: model.preferences.nightMode, themedHoverLabel: true) { model.export() }
+            Menu {
+                Button("Export Letter as PDF…") { model.exportPDF() }
+                Button("Export Markdown…") { model.export(markdown: true) }
+                Button("Export Text…") { model.export() }
+            } label: {
+                DeskControlIcon(symbol: "arrow.up.doc", onDark: model.preferences.nightMode)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .modifier(DeskControlHover(label: "Export letter", onDark: model.preferences.nightMode))
             QuietButton(symbol: "viewfinder",
                         label: model.focusMode ? "Exit Focus Mode · ⇧⌘F" : "Enter Focus Mode · ⇧⌘F",
                         onDark: model.preferences.nightMode, active: model.focusMode, themedHoverLabel: true) {

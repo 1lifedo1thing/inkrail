@@ -105,9 +105,10 @@ private enum MachineStyleCheck {
         let defaults = try decoder.decode(WritingPreferences.self, from: Data("{}".utf8))
         let future = try decoder.decode(WritingPreferences.self, from: Data(
             "{\"mechanismStyle\":\"future\",\"rail\":\"brass\",\"lampWarmth\":0.31}".utf8))
-        try require(defaults.mechanismStyle == .classic && future.mechanismStyle == .classic
+        try require(defaults.mechanismStyle == .walnut && defaults.matchRailToStyle && defaults.effectiveRailFinish == .brass
+                    && future.mechanismStyle == .walnut
                     && future.rail == .brass && future.lampWarmth == 0.31, "Fallback resets preferences")
-        passed("Literal legacy values and independent Classic fallback survive the style expansion")
+        passed("Literal legacy values survive, and missing or unknown styles fall back to Walnut")
 
         for style in MechanismStyle.allCases {
             let material = style.material

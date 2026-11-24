@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="100" viewBox="0 0 120 100" role="img" aria-labelledby="title">
+  <title id="title">Inkrail maker’s mark</title>
+  <style>
+    @media (prefers-color-scheme: dark) { .imprint { fill: #efe7ce; } }
+  </style>
+  <g class="imprint" fill="#223b30" transform="matrix(.98 0 0 1.04 1 -3)">
+    <!-- The two stems share a foot. A second rule follows the carriage rail. -->
+    <path fill-rule="evenodd" d="M18 10h34l-2 7-9 3-14 52h13l14-52 2-10h28
+      c20 0 32 8 28 25-3 13-14 18-28 20 9 6 11 21 22 24
+      q6 2 14-3l-2 8q-7 8-17 8c-16 0-22-12-28-26
+      q-5-10-10-10h-2l-4 16h13l-2 7H3l2-7h8l14-52-11-3z
+      M64 47h12c12 0 20-7 22-16 2-9-5-12-15-12H72z"/>
+    <path d="M2 84h65l-2 6H0z"/>
+  </g>
+</svg>
