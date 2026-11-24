@@ -40,7 +40,9 @@ jobs:
         run: |
           $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
           $test = Join-Path $env:RUNNER_TEMP 'Test-Inkrail-Migration.exe'
-          & $compiler /nologo /main:ProfileMigrationChecks /reference:System.Windows.Forms.dll "/out:$test" packaging/msix/StoreLauncher.cs packaging/msix/tests/ProfileMigrationChecks.cs
+          $launcherSource = Join-Path $env:GITHUB_WORKSPACE 'packaging\msix\StoreLauncher.cs'
+          $checksSource = Join-Path $env:GITHUB_WORKSPACE 'packaging\msix\tests\ProfileMigrationChecks.cs'
+          & $compiler /nologo /main:ProfileMigrationChecks /reference:System.Windows.Forms.dll "/out:$test" $launcherSource $checksSource
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $test
           exit $LASTEXITCODE
